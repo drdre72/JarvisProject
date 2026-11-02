@@ -4,7 +4,7 @@
 
 1. **Get the source**
    ```bash
-   git clone https://github.com/drdre72/new.git JarvisProject
+   git clone https://github.com/drdre72/JarvisProject.git
    cd JarvisProject
    ```
 
