@@ -34,7 +34,7 @@ and `CURRENT_ISSUES.md` for limitations.
 
 ### 1. Get the source
 ```bash
-git clone https://github.com/drdre72/JarvisProject.git
+git clone https://github.com/drdre72/new.git JarvisProject
 cd JarvisProject
 ```
 
