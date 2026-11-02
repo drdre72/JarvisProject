@@ -34,10 +34,9 @@ and `CURRENT_ISSUES.md` for limitations.
 
 ### 1. Get the source
 ```bash
-git clone https://github.com/OWNER/JarvisProject.git
+git clone https://github.com/drdre72/JarvisProject.git
 cd JarvisProject
 ```
-Replace `OWNER` with the GitHub account or organization that publishes it.
 
 ### 2. Download AI Model
 Stage the ungated Qwen2.5-7B-Instruct Q4_K_M GGUF, CPU llama.cpp

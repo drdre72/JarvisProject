@@ -4,8 +4,7 @@
 
 1. **Get the source**
    ```bash
-   # Replace OWNER with the GitHub account or organization.
-   git clone https://github.com/OWNER/JarvisProject.git
+   git clone https://github.com/drdre72/JarvisProject.git
    cd JarvisProject
    ```
 
