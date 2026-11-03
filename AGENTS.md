@@ -128,7 +128,12 @@ Private session notes and editor settings are intentionally not included.
   request/response frames; stdout is protocol-only, tracing logs go to
   stderr. `scripts/rust_core_adapter.py` is the Python peer;
   `tools/test_rust_core_protocol.py` runs live wire checks when the
-  binary exists. Toolchain installed: `rustup` default
+  binary exists. With `[rust_core] enabled = true`,
+  `scripts/rust_core_feed.py` emits a correlated turn start/outcome
+  pair per user command — metadata only, never transcripts — so the
+  shadow journal can be compared against live behavior via
+  `tools/inspect_rust_journal.py --check-shadow`. Toolchain installed:
+  `rustup` default
   `stable-x86_64-pc-windows-gnu` (1.99.1) plus WinLibs mingw `gcc` on PATH
   (`rusqlite/bundled` compiles SQLite from C — `cc` needs `gcc.exe`; no
   MSVC/Visual Studio required). `tools\verify.ps1` runs fmt/clippy/test

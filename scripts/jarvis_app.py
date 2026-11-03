@@ -27,6 +27,7 @@ from decision_controller import OfflineDecisionController
 from capability_registry import CapabilityRegistry
 from semantic_intent import INTENT_SCHEMA, parse_hypothesis, fulfill
 from runtime_log import get_runtime_logger
+import rust_core_feed
 
 _whisper_stt = None
 
@@ -75,6 +76,10 @@ class JarvisApp:
         self.system_monitor_thread = None
         self.should_monitor = True
         self.voice_button = None
+        # Optional shadow feed to jarvis-core (ADR-0006 Stage A). None when
+        # jarvis-core.toml is absent/disabled or the binary cannot start;
+        # every emit is failure-isolated and carries no transcript content.
+        self.rust_feed = rust_core_feed.start_if_enabled()
 
         # Initialize audio and system monitoring
         self.setup_page()
@@ -516,19 +521,57 @@ class JarvisApp:
         self.activity_text.value = message
         self.page.update()
 
+    def _rust_turn_start(self, voice_generation):
+        """Emit UserRequestReceived for the shadow supervisor; returns trace."""
+        feed = getattr(self, "rust_feed", None)
+        if feed is None:
+            return None
+        source = "voice_pipeline" if voice_generation is not None else "ui"
+        trace = feed.new_trace()
+        feed.emit(
+            source,
+            "UserRequestReceived",
+            {"input": "voice" if voice_generation is not None else "text"},
+            trace_id=trace,
+        )
+        return trace, source
+
+    def _rust_turn_end(self, turn, outcome, started):
+        """Emit the turn's completion as operational telemetry for comparison."""
+        feed = getattr(self, "rust_feed", None)
+        if feed is None or not turn:
+            return
+        _, source = turn
+        feed.emit(
+            source,
+            "ExternalStimulus",
+            {
+                "kind": "turn_completed",
+                "outcome": outcome,
+                "elapsed_ms": int((time.monotonic() - started) * 1000),
+            },
+            trace_id=turn[0],
+        )
+
     def process_user_command(self, user_input, voice_generation=None):
         """Process user command through JARVIS system"""
+        turn_started = time.monotonic()
+        turn = self._rust_turn_start(voice_generation)
+        outcome = "error"
         try:
             # Check for direct commands first
             if user_input.lower() in ["exit", "quit", "goodbye"]:
                 self.add_chat_message("Jarvis", "Goodbye, sir. JARVIS systems standing by.", True)
                 speak("Goodbye, sir. JARVIS systems standing by.")
+                outcome = "handled"
                 return
 
             # Use JARVIS dispatcher to process command
             self.set_activity("Checking your request locally...")
             result = process_command(user_input)
 
+            if result != 'CONTINUE_LOOP':
+                outcome = "handled"
             if result == 'CONTINUE_LOOP':
                 self.set_activity("Choosing a local response...")
                 decision = OfflineDecisionController().decide(user_input)
@@ -541,6 +584,7 @@ class JarvisApp:
                         raise ValueError("Local response was empty")
                     self.add_chat_message("Jarvis", decision.reply, True)
                     speak(decision.reply)
+                    outcome = "answered"
                     return
                 if decision.strategy == "local_metrics":
                     try:
@@ -559,6 +603,7 @@ class JarvisApp:
                         response = "I cannot read local CPU and memory status right now, sir."
                     self.add_chat_message("Jarvis", response, True)
                     speak(response)
+                    outcome = "answered"
                     return
                 if decision.strategy == "conversation":
                     self.set_activity("Understanding your request locally...")
@@ -575,6 +620,7 @@ class JarvisApp:
                             or self._voice_generation != voice_generation
                         ):
                             get_runtime_logger().info("voice reply discarded after deactivation")
+                            outcome = "discarded"
                             return
                         hypothesis = parse_hypothesis(raw, original_text=user_input)
                         self.set_activity("Checking local evidence...")
@@ -593,6 +639,7 @@ class JarvisApp:
                         get_runtime_logger().warning(
                             "intent unavailable type=%s", type(error).__name__
                         )
+                        outcome = "unavailable"
                         if voice_generation is not None and (
                             not self.is_listening
                             or self._voice_generation != voice_generation
@@ -629,6 +676,7 @@ class JarvisApp:
                     response = "I could not verify that approved note just now, sir."
                     self.add_chat_message("Jarvis", response, True)
                     speak(response)
+                    outcome = "unanswered"
                     return
 
                 # If no specific command found, use conversation mode
@@ -663,6 +711,7 @@ class JarvisApp:
                                 "Jarvis", "I could not save this conversation to local memory.", True
                             )
                         speak(assistant_response)
+                        outcome = "answered"
                     else:
                         raise Exception("Reasoning engine not available")
 
@@ -676,6 +725,7 @@ class JarvisApp:
             self.add_chat_message("Jarvis", "I encountered an error processing that command, sir.", True)
             speak("I encountered an error processing that command.")
         finally:
+            self._rust_turn_end(turn, outcome, turn_started)
             self.set_activity("")
 
     def create_jarvis_persona_prompt(self):
@@ -915,6 +965,9 @@ class JarvisApp:
         self.should_monitor = False
         self.is_listening = False
         self._voice_generation += 1
+        feed = getattr(self, "rust_feed", None)
+        if feed is not None:
+            feed.close()
 
 def main(page: ft.Page):
     """Main application entry point"""

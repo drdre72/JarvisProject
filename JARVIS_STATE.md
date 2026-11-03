@@ -146,8 +146,13 @@
    input dropped, supervisor outlives closed stdin, `enabled=false` inert
    exit. First Stage B surface wired: `schedule_obligation`/`cancel_obligation`
    over request/response frames (stdout=protocol, stderr=logs), persisted
-   before ack, still shadow-evaluated — no consequential dispatch. Not yet
-   exercised against the live Python worker or OS sleep/restart.
+   before ack, still shadow-evaluated — no consequential dispatch. Stage A
+   comparison feed live: `jarvis-core.toml` `enabled=true` makes
+   `scripts/rust_core_feed.py` emit trace-correlated
+   UserRequestReceived + turn_completed pairs (metadata only) from
+   `process_user_command`; `tools/inspect_rust_journal.py --check-shadow`
+   summarizes per-trace decisions and fails on any non-shadow dispatch.
+   Not yet exercised against the live Python worker or OS sleep/restart.
 
 ## Rules of interpretation
 

@@ -128,12 +128,17 @@ def validate_envelope(envelope, max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES):
         raise FrameError("future_timestamp")
 
 
-def event_envelope(source, event_type, payload=None, dedup_key=None, occurred_at=None):
-    """Supervisor-side event constructor, mirroring EventEnvelope::create."""
+def event_envelope(
+    source, event_type, payload=None, dedup_key=None, occurred_at=None, trace_id=None
+):
+    """Supervisor-side event constructor, mirroring EventEnvelope::create.
+
+    Pass trace_id to correlate several envelopes to one originating turn.
+    """
     envelope = {
         "schema_version": SCHEMA_VERSION,
         "event_id": new_id("evt"),
-        "trace_id": new_id("trace"),
+        "trace_id": trace_id or new_id("trace"),
         "source": source,
         "event_type": event_type,
         "occurred_at_utc": _rfc3339(occurred_at)
@@ -155,12 +160,14 @@ def frame(body):
     }
 
 
-def event_frame(source, event_type, payload=None, dedup_key=None, occurred_at=None):
+def event_frame(
+    source, event_type, payload=None, dedup_key=None, occurred_at=None, trace_id=None
+):
     return frame(
         {
             "kind": "event",
             "data": event_envelope(
-                source, event_type, payload, dedup_key, occurred_at
+                source, event_type, payload, dedup_key, occurred_at, trace_id
             ),
         }
     )
@@ -389,8 +396,10 @@ class RustCoreProcess:
         self.send_line(encode(wire_frame))
         return wire_frame["msg_id"]
 
-    def send_event(self, source, event_type, payload=None, dedup_key=None):
-        wire = event_frame(source, event_type, payload, dedup_key)
+    def send_event(
+        self, source, event_type, payload=None, dedup_key=None, trace_id=None
+    ):
+        wire = event_frame(source, event_type, payload, dedup_key, trace_id=trace_id)
         self.send_wire_frame(wire)
         return wire["body"]["data"]["event_id"]
 

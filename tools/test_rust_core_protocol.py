@@ -22,6 +22,8 @@ ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import rust_core_adapter as adapter
+import rust_core_feed
+import inspect_rust_journal
 
 
 def _build_or_find_binary():
@@ -243,6 +245,67 @@ class StageBWireTests(unittest.TestCase):
                 core.stop()
         self.assertFalse(response["ok"])
         self.assertEqual(response["body"]["error"], "unknown_op")
+
+
+class StageAFeedTests(unittest.TestCase):
+    """The comparison evidence: real turn events journaled by the shadow."""
+
+    binary = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.binary = _build_or_find_binary()
+        if cls.binary is None:
+            raise unittest.SkipTest("jarvis-core binary unavailable (cargo build it)")
+
+    def test_live_feed_records_correlated_turn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter.write_config(
+                Path(tmp) / "jarvis-core.toml",
+                Path(tmp) / "data",
+                enabled=True,
+                shadow_mode=True,
+            )
+            feed = rust_core_feed.start_if_enabled(root=tmp, binary=self.binary)
+            self.assertIsNotNone(feed, "enabled config + binary must activate the feed")
+            try:
+                trace = feed.new_trace()
+                self.assertTrue(
+                    feed.emit(
+                        "voice_pipeline",
+                        "UserRequestReceived",
+                        {"input": "voice"},
+                        trace_id=trace,
+                    )
+                )
+                self.assertTrue(
+                    feed.emit(
+                        "voice_pipeline",
+                        "ExternalStimulus",
+                        {"kind": "turn_completed", "outcome": "answered",
+                         "elapsed_ms": 42},
+                        trace_id=trace,
+                    )
+                )
+                time.sleep(2.0)
+            finally:
+                feed.close()
+
+            journal = Path(tmp) / "data" / "operational-journal.db"
+            summary = inspect_rust_journal.summarize(journal)
+            traces = summary["traces"]
+            self.assertIn(trace, traces, "turn events missing from journal")
+            rows = traces[trace]
+            self.assertEqual(len(rows), 2)
+            by_type = {row[3]: row for row in rows}
+            self.assertEqual(by_type["UserRequestReceived"][4], "user_interrupt")
+            self.assertEqual(by_type["ExternalStimulus"][4], "external_stimulus")
+            # Stage A invariant: everything dispatched is shadow bookkeeping.
+            self.assertEqual(inspect_rust_journal.shadow_violations(journal), [])
+
+    def test_feed_inactive_without_config(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(rust_core_feed.start_if_enabled(root=tmp))
 
 
 if __name__ == "__main__":
