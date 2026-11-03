@@ -135,15 +135,19 @@
    Zero audit in `docs/rust-core-audit.md`. Stage A shadow scaffold exists —
    validated state machines, bounded event queue, deterministic attention,
    durable obligation scheduler, SQLite journal actor, policy engine,
-   worker/restart types, JSON-lines frame codec. Toolchain installed
-   (rustup `stable-x86_64-pc-windows-gnu` 1.99.1 + WinLibs mingw gcc for
-   `rusqlite/bundled`). **Compiles: fmt clean, clippy -D warnings clean,
-   54 tests pass** (52 unit + 2 shadow-runtime integration); `verify.ps1`
+   worker/restart types, versioned JSON-lines frame codec. Toolchain
+   installed (rustup `stable-x86_64-pc-windows-gnu` 1.99.1 + WinLibs mingw
+   gcc for `rusqlite/bundled`). **fmt clean, clippy -D warnings clean,
+   56 tests pass** (52 unit + 4 shadow-runtime integration); `verify.ps1`
    runs the Rust stage automatically when cargo is found. Python path
-   unchanged; the flag defaults to `enabled = false`. Binary smoke test:
-   `enabled=false` inert exit, shadow-mode stdin frame journaled, malformed
-   input dropped, DB durable after kill. Not yet exercised against the
-   live Python worker or OS sleep/restart.
+   unchanged; `enabled` and `ipc_requests` default to `false`. Live wire
+   checks in `tools/test_rust_core_protocol.py` prove: Python-encoded frames
+   accepted and journaled, malformed/oversized/wrong-version/non-event
+   input dropped, supervisor outlives closed stdin, `enabled=false` inert
+   exit. First Stage B surface wired: `schedule_obligation`/`cancel_obligation`
+   over request/response frames (stdout=protocol, stderr=logs), persisted
+   before ack, still shadow-evaluated — no consequential dispatch. Not yet
+   exercised against the live Python worker or OS sleep/restart.
 
 ## Rules of interpretation
 

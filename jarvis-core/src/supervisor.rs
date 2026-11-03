@@ -18,7 +18,8 @@ use crate::journal::{JournalError, JournalHandle};
 use crate::policy::{ActionRequest, Decision, PolicyEngine, Requester};
 use crate::scheduler::{DueItem, Obligation, ObligationStatus, Scheduler, TickOutcome};
 use crate::state::{CognitiveMachine, CognitiveState};
-use serde_json::json;
+use crate::transport::{FrameBody, InboundRequest, WireFrame};
+use serde_json::{json, Value};
 use std::future::Future;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
@@ -36,10 +37,17 @@ pub struct Supervisor {
     /// Consecutive journal write failures — durability problems degrade the
     /// machine honestly rather than hiding.
     journal_failures: u32,
+    /// Response frames back to the Python peer (Stage B IPC surface).
+    outbound: mpsc::Sender<WireFrame>,
 }
 
 impl Supervisor {
-    pub fn new(cfg: CoreConfig, journal: JournalHandle, scheduler: Scheduler) -> Self {
+    pub fn new(
+        cfg: CoreConfig,
+        journal: JournalHandle,
+        scheduler: Scheduler,
+        outbound: mpsc::Sender<WireFrame>,
+    ) -> Self {
         let queue = BoundedEventQueue::new(
             cfg.rust_core.event_queue_capacity,
             Duration::from_secs(cfg.rust_core.dedup_window_seconds),
@@ -54,6 +62,7 @@ impl Supervisor {
             journal,
             policy: PolicyEngine::new(),
             journal_failures: 0,
+            outbound,
         }
     }
 
@@ -95,6 +104,7 @@ impl Supervisor {
     pub async fn run(
         mut self,
         mut intake: mpsc::Receiver<EventEnvelope>,
+        mut requests: mpsc::Receiver<InboundRequest>,
         mut shutdown: mpsc::Receiver<()>,
     ) {
         let mut tick =
@@ -120,9 +130,138 @@ impl Supervisor {
                         info!("event intake closed; supervisor continues on timers");
                     }
                 },
+                Some(req) = requests.recv() => self.on_request(req).await,
             }
         }
         self.shutdown().await;
+    }
+
+    /// Stage B limited surface: durable obligation scheduling only. Every
+    /// request gets a typed response; the flag keeps the function inert.
+    async fn on_request(&mut self, req: InboundRequest) {
+        if !self.cfg.rust_core.ipc_requests {
+            self.respond(req.request_id, false, json!({"error": "ipc_disabled"}))
+                .await;
+            return;
+        }
+        match req.op.as_str() {
+            "schedule_obligation" => self.op_schedule_obligation(req).await,
+            "cancel_obligation" => self.op_cancel_obligation(req).await,
+            _ => {
+                self.respond(
+                    req.request_id,
+                    false,
+                    json!({"error": "unknown_op", "op": req.op}),
+                )
+                .await;
+            }
+        }
+    }
+
+    async fn respond(&self, request_id: String, ok: bool, body: Value) {
+        let frame = WireFrame::new(FrameBody::Response {
+            request_id,
+            ok,
+            body,
+        });
+        if self.outbound.send(frame).await.is_err() {
+            warn!("outbound channel closed; response dropped");
+        }
+    }
+
+    /// The transferred function: validate, journal, then arm. Persistence
+    /// before acknowledgement; a journal failure rolls back the in-memory
+    /// schedule so the two never disagree silently.
+    async fn op_schedule_obligation(&mut self, req: InboundRequest) {
+        let request_id = req.request_id;
+        let mut obligation: Obligation = match serde_json::from_value(req.args) {
+            Ok(o) => o,
+            Err(e) => {
+                self.respond(
+                    request_id,
+                    false,
+                    json!({"error": "malformed_obligation", "detail": e.to_string()}),
+                )
+                .await;
+                return;
+            }
+        };
+        // Untrusted input cannot self-assign status or a prior result.
+        obligation.status = ObligationStatus::Pending;
+        obligation.last_result = None;
+        if let Err(e) = obligation.validate() {
+            self.respond(
+                request_id,
+                false,
+                json!({"error": "invalid_obligation", "detail": e.to_string()}),
+            )
+            .await;
+            return;
+        }
+        if let Err(e) = self.scheduler.schedule(obligation.clone()) {
+            self.respond(
+                request_id,
+                false,
+                json!({"error": "schedule_error", "detail": e.to_string()}),
+            )
+            .await;
+            return;
+        }
+        let j = self.journal.clone();
+        let stored = obligation.clone();
+        let obligation_id = obligation.obligation_id.clone();
+        match self
+            .j(async move { j.upsert_obligation(stored).await })
+            .await
+        {
+            Some(()) => {
+                self.respond(request_id, true, json!({"obligation_id": obligation_id}))
+                    .await;
+            }
+            None => {
+                self.scheduler.cancel(&obligation_id);
+                self.respond(request_id, false, json!({"error": "journal_failed"}))
+                    .await;
+            }
+        }
+    }
+
+    /// Un-arm a queued obligation. An already-released due event completes
+    /// through the normal path; the journal preserves the order either way.
+    async fn op_cancel_obligation(&mut self, req: InboundRequest) {
+        let request_id = req.request_id;
+        let Some(id) = req.args.get("obligation_id").and_then(Value::as_str) else {
+            self.respond(
+                request_id,
+                false,
+                json!({"error": "malformed_args", "detail": "obligation_id required"}),
+            )
+            .await;
+            return;
+        };
+        let id = id.to_string();
+        if !self.scheduler.cancel(&id) {
+            self.respond(request_id, false, json!({"error": "unknown_obligation"}))
+                .await;
+            return;
+        }
+        let j = self.journal.clone();
+        let jid = id.clone();
+        self.j(async move {
+            j.set_obligation_status(
+                &jid,
+                ObligationStatus::Cancelled,
+                Some("cancelled_via_ipc".into()),
+            )
+            .await
+        })
+        .await;
+        self.respond(
+            request_id,
+            true,
+            json!({"obligation_id": id, "status": "cancelled"}),
+        )
+        .await;
     }
 
     async fn on_event(&mut self, env: EventEnvelope) {

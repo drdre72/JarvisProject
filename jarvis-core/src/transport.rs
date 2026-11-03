@@ -48,6 +48,15 @@ pub enum FrameBody {
     },
 }
 
+/// One decoded request ready for the supervisor. The wire tag is consumed
+/// at intake; only the validated fields travel onward.
+#[derive(Debug)]
+pub struct InboundRequest {
+    pub request_id: String,
+    pub op: String,
+    pub args: Value,
+}
+
 impl WireFrame {
     pub fn new(body: FrameBody) -> Self {
         Self {

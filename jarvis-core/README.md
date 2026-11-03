@@ -6,8 +6,10 @@ journal, worker lifecycle/budget types, the authorization boundary, and
 fault recovery. The Python stack (Flet UI, faster-whisper, pyttsx3,
 llama.cpp, Obsidian vault) remains the intelligence runtime (System B).
 
-Status: **ADR-0006 Stage A (shadow)** — the supervisor evaluates and
-journals every decision but dispatches no consequential action. See
+Status: **ADR-0006 Stage A (shadow) with the first Stage B surface** —
+the supervisor evaluates and journals every decision, dispatches no
+consequential action, and accepts durable obligation scheduling over the
+wire behind the `ipc_requests` flag. See
 `docs/decisions/ADR-0006-rust-supervisory-runtime.md` and
 `docs/rust-core-audit.md`.
 
@@ -56,6 +58,27 @@ it, so the legacy runtime is unaffected. In shadow mode the supervisor:
 Obligations are journaled transactionally *before* acknowledgement and
 reloaded on start — process death mid-cycle redelivers the work through the
 same idempotency key instead of duplicating it.
+
+## IPC surface (Stage B)
+
+stdout carries protocol frames only; tracing logs moved to stderr, so a
+peer can treat every stdout line as a `WireFrame`. With
+`ipc_requests = true` the supervisor answers typed requests:
+
+- `schedule_obligation` — validates the `Obligation` JSON, normalizes
+  untrusted `status`/`last_result` to `pending`/none, journals it, then
+  arms the scheduler. Persistence before acknowledgement.
+- `cancel_obligation` — un-arms a queued obligation and journals
+  `cancelled`. An already-released due event still completes through the
+  normal path; the journal preserves the order.
+- anything else — `{"ok": false, "body": {"error": "unknown_op"}}`.
+
+With `ipc_requests = false` (default) every request is answered
+`{"error": "ipc_disabled"}` — the rollback keeps the loop alive but the
+function inert. A `shutdown` frame on stdin takes the graceful path, as
+does Ctrl-C. `scripts/rust_core_adapter.py` is the Python peer;
+`tools/test_rust_core_protocol.py` runs live wire-compat checks against
+the built binary.
 
 ## Layout
 

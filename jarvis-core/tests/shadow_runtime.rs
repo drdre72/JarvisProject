@@ -7,6 +7,7 @@ use jarvis_core::events::{EventEnvelope, EventSource, EventType};
 use jarvis_core::journal::JournalHandle;
 use jarvis_core::scheduler::{MissedPolicy, Obligation, ObligationStatus, Scheduler};
 use jarvis_core::supervisor::Supervisor;
+use jarvis_core::transport::{FrameBody, InboundRequest, WireFrame};
 use serde_json::json;
 use std::path::Path;
 use tempfile::tempdir;
@@ -63,10 +64,17 @@ async fn obligation_survives_restart_and_completes_in_shadow() {
         scheduler.schedule(o).unwrap();
     }
 
-    let supervisor = Supervisor::new(test_config(dir.path()), journal.clone(), scheduler);
+    let (outbound_tx, _outbound_rx) = mpsc::channel::<WireFrame>(8);
+    let supervisor = Supervisor::new(
+        test_config(dir.path()),
+        journal.clone(),
+        scheduler,
+        outbound_tx,
+    );
     let (event_tx, event_rx) = mpsc::channel(64);
+    let (_request_tx, request_rx) = mpsc::channel(8);
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
-    let task = tokio::spawn(supervisor.run(event_rx, shutdown_rx));
+    let task = tokio::spawn(supervisor.run(event_rx, request_rx, shutdown_rx));
 
     // Let at least one scheduler tick release the obligation.
     tokio::time::sleep(std::time::Duration::from_millis(1600)).await;
@@ -117,15 +125,150 @@ async fn obligation_survives_restart_and_completes_in_shadow() {
 async fn supervisor_outlives_closed_intake_and_stops_on_signal() {
     let dir = tempdir().unwrap();
     let journal = JournalHandle::spawn(&dir.path().join("j.db")).unwrap();
-    let supervisor = Supervisor::new(test_config(dir.path()), journal, Scheduler::new());
+    let (outbound_tx, _outbound_rx) = mpsc::channel::<WireFrame>(8);
+    let supervisor = Supervisor::new(
+        test_config(dir.path()),
+        journal,
+        Scheduler::new(),
+        outbound_tx,
+    );
     let (event_tx, event_rx) = mpsc::channel::<EventEnvelope>(8);
+    let (_request_tx, request_rx) = mpsc::channel(8);
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
-    let task = tokio::spawn(supervisor.run(event_rx, shutdown_rx));
+    let task = tokio::spawn(supervisor.run(event_rx, request_rx, shutdown_rx));
 
     drop(event_tx); // intake gone — supervisor must not die with it
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert!(!task.is_finished());
 
+    shutdown_tx.send(()).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .expect("supervisor ignored shutdown")
+        .unwrap();
+}
+
+/// Stage B over the wire: a schedule request is validated, journaled, then
+/// armed; the due run still passes policy evaluation and shadows (never
+/// dispatches). A flag-off peer gets `ipc_disabled`, proving rollback.
+#[tokio::test]
+async fn schedule_over_wire_runs_through_policy_and_journal() {
+    let dir = tempdir().unwrap();
+    let db = dir.path().join("j.db");
+    let mut cfg = test_config(dir.path());
+    cfg.rust_core.ipc_requests = true;
+    let journal = JournalHandle::spawn(&db).unwrap();
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<WireFrame>(8);
+    let supervisor = Supervisor::new(cfg, journal, Scheduler::new(), outbound_tx);
+    let (_event_tx, event_rx) = mpsc::channel::<EventEnvelope>(8);
+    let (request_tx, request_rx) = mpsc::channel(8);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let task = tokio::spawn(supervisor.run(event_rx, request_rx, shutdown_rx));
+
+    let obligation = json!({
+        "obligation_id": "ob-wire-1",
+        "created_at_utc": OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap(),
+        "next_run_at_utc": (OffsetDateTime::now_utc() + Duration::seconds(1))
+            .format(&time::format_description::well_known::Rfc3339)
+            .unwrap(),
+        "origin": "python-worker",
+        "scope": "ops.obligation.run",
+        "priority": 5,
+        "recurrence_seconds": null,
+        "expires_at_utc": null,
+        "missed_policy": "run_once_on_recovery",
+        "last_result": "tampered",
+        "status": "done"
+    });
+    request_tx
+        .send(InboundRequest {
+            request_id: "req-1".into(),
+            op: "schedule_obligation".into(),
+            args: obligation,
+        })
+        .await
+        .unwrap();
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(3), outbound_rx.recv())
+        .await
+        .expect("no response frame")
+        .expect("outbound closed");
+    match frame.body {
+        FrameBody::Response {
+            request_id,
+            ok,
+            body,
+        } => {
+            assert_eq!(request_id, "req-1");
+            assert!(ok, "schedule rejected: {body}");
+        }
+        other => panic!("expected response, got {other:?}"),
+    }
+
+    // Wait for the due run to release and complete in shadow.
+    tokio::time::sleep(std::time::Duration::from_millis(2500)).await;
+    shutdown_tx.send(()).await.unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(5), task)
+        .await
+        .expect("supervisor ignored shutdown")
+        .unwrap();
+
+    let conn = rusqlite::Connection::open(&db).unwrap();
+    let (status, last_result): (String, Option<String>) = conn
+        .query_row(
+            "SELECT status, last_result FROM scheduled_obligations WHERE obligation_id='ob-wire-1'",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(status, "done");
+    assert_eq!(last_result.as_deref(), Some("shadow_evaluated"));
+    let intents: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM action_intents WHERE decision='allow'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(intents >= 1, "due run passed policy evaluation");
+}
+
+#[tokio::test]
+async fn ipc_disabled_flag_rolls_back_requests() {
+    let dir = tempdir().unwrap();
+    let journal = JournalHandle::spawn(&dir.path().join("j.db")).unwrap();
+    let (outbound_tx, mut outbound_rx) = mpsc::channel::<WireFrame>(8);
+    let supervisor = Supervisor::new(
+        test_config(dir.path()),
+        journal,
+        Scheduler::new(),
+        outbound_tx,
+    );
+    let (_event_tx, event_rx) = mpsc::channel::<EventEnvelope>(8);
+    let (request_tx, request_rx) = mpsc::channel(8);
+    let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let task = tokio::spawn(supervisor.run(event_rx, request_rx, shutdown_rx));
+
+    request_tx
+        .send(InboundRequest {
+            request_id: "req-off".into(),
+            op: "schedule_obligation".into(),
+            args: json!({}),
+        })
+        .await
+        .unwrap();
+    let frame = tokio::time::timeout(std::time::Duration::from_secs(3), outbound_rx.recv())
+        .await
+        .expect("no response frame")
+        .expect("outbound closed");
+    match frame.body {
+        FrameBody::Response { ok, body, .. } => {
+            assert!(!ok);
+            assert_eq!(body["error"], "ipc_disabled");
+        }
+        other => panic!("expected response, got {other:?}"),
+    }
     shutdown_tx.send(()).await.unwrap();
     tokio::time::timeout(std::time::Duration::from_secs(5), task)
         .await

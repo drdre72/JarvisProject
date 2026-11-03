@@ -40,6 +40,9 @@ pub struct RustCoreSection {
     pub max_payload_bytes: usize,
     /// Per-source admission cap within one dedup window (rate limiting).
     pub per_source_burst: usize,
+    /// Stage B gate: false answers every request frame with `ipc_disabled`
+    /// so the limited function can be rolled back without killing the loop.
+    pub ipc_requests: bool,
 }
 
 impl Default for RustCoreSection {
@@ -52,6 +55,7 @@ impl Default for RustCoreSection {
             dedup_window_seconds: 30,
             max_payload_bytes: 16 * 1024,
             per_source_burst: 32,
+            ipc_requests: false,
         }
     }
 }

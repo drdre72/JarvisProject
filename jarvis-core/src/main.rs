@@ -15,7 +15,7 @@ use jarvis_core::events::EventEnvelope;
 use jarvis_core::journal::JournalHandle;
 use jarvis_core::scheduler::Scheduler;
 use jarvis_core::supervisor::Supervisor;
-use jarvis_core::transport::{self, FrameBody};
+use jarvis_core::transport::{self, FrameBody, InboundRequest, WireFrame};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use tokio::sync::mpsc;
@@ -36,11 +36,14 @@ fn config_path_from_args() -> PathBuf {
     PathBuf::from(DEFAULT_CONFIG_PATH)
 }
 
-/// One validated JSON-lines frame per stdin line. This is the shadow-stage
-/// ingress: untrusted input is decoded, version-checked, and validated
-/// before it can occupy a queue slot.
+/// One validated JSON-lines frame per stdin line. Untrusted input is
+/// decoded, version-checked, and validated before it can occupy a queue
+/// slot. Events go to the bounded intake, requests to the bounded IPC
+/// channel, and a protocol shutdown takes the graceful path.
 fn spawn_stdin_intake(
     tx: mpsc::Sender<EventEnvelope>,
+    req_tx: mpsc::Sender<InboundRequest>,
+    shutdown_tx: mpsc::Sender<()>,
     max_payload: usize,
 ) -> tokio::task::JoinHandle<()> {
     tokio::task::spawn_blocking(move || {
@@ -68,7 +71,27 @@ fn spawn_stdin_intake(
                             break;
                         }
                     }
-                    _ => info!("ignoring non-event frame in shadow stage"),
+                    FrameBody::Request {
+                        request_id,
+                        op,
+                        args,
+                    } => {
+                        let req = InboundRequest {
+                            request_id,
+                            op,
+                            args,
+                        };
+                        // Backpressure: a full request channel drops with a
+                        // warning rather than blocking event intake.
+                        if let Err(e) = req_tx.try_send(req) {
+                            warn!(error = %e, "dropped request; channel closed or full");
+                        }
+                    }
+                    FrameBody::Shutdown { reason } => {
+                        info!(?reason, "protocol shutdown requested");
+                        let _ = shutdown_tx.try_send(());
+                    }
+                    _ => info!("ignoring non-event frame"),
                 },
                 Err(e) => warn!(error = %e, "dropped malformed frame"),
             }
@@ -77,11 +100,34 @@ fn spawn_stdin_intake(
     })
 }
 
+/// Response frames are the only thing ever written to stdout — the peer
+/// can treat every line as protocol. Diagnostics stay on stderr.
+fn spawn_stdout_writer(mut rx: mpsc::Receiver<WireFrame>) -> tokio::task::JoinHandle<()> {
+    tokio::task::spawn_blocking(move || {
+        use std::io::Write;
+        let stdout = std::io::stdout();
+        let mut lock = stdout.lock();
+        while let Some(frame) = rx.blocking_recv() {
+            match transport::encode(&frame) {
+                Ok(line) => {
+                    if lock.write_all(line.as_bytes()).is_err() || lock.flush().is_err() {
+                        warn!("stdout write failed; response lost");
+                        break;
+                    }
+                }
+                Err(e) => warn!(error = %e, "could not encode outbound frame"),
+            }
+        }
+    })
+}
+
 #[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> ExitCode {
+    // Logs on stderr: stdout is reserved for protocol response frames.
     tracing_subscriber::fmt()
         .with_env_filter(EnvFilter::from_default_env())
         .with_target(true)
+        .with_writer(std::io::stderr)
         .init();
 
     let config_path = config_path_from_args();
@@ -127,9 +173,17 @@ async fn main() -> ExitCode {
     }
 
     let (event_tx, event_rx) = mpsc::channel(cfg.rust_core.event_queue_capacity);
+    let (request_tx, request_rx) = mpsc::channel(64);
     let (shutdown_tx, shutdown_rx) = mpsc::channel(1);
+    let (outbound_tx, outbound_rx) = mpsc::channel::<WireFrame>(64);
 
-    let _intake = spawn_stdin_intake(event_tx, cfg.rust_core.max_payload_bytes);
+    let _intake = spawn_stdin_intake(
+        event_tx,
+        request_tx,
+        shutdown_tx.clone(),
+        cfg.rust_core.max_payload_bytes,
+    );
+    let _stdout = spawn_stdout_writer(outbound_rx);
 
     tokio::spawn(async move {
         match tokio::signal::ctrl_c().await {
@@ -140,8 +194,8 @@ async fn main() -> ExitCode {
         }
     });
 
-    let supervisor = Supervisor::new(cfg, journal, scheduler);
-    supervisor.run(event_rx, shutdown_rx).await;
+    let supervisor = Supervisor::new(cfg, journal, scheduler, outbound_tx);
+    supervisor.run(event_rx, request_rx, shutdown_rx).await;
 
     info!("jarvis-core stopped cleanly");
     ExitCode::SUCCESS

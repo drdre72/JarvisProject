@@ -15,6 +15,7 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -129,6 +130,119 @@ class LiveProtocolTests(unittest.TestCase):
         self.assertIn("dropped malformed frame", log_text)
         self.assertIn("dropped invalid event", log_text)
         self.assertIn("ignoring non-event frame", log_text)
+
+
+class StageBWireTests(unittest.TestCase):
+    """The transferred function: durable obligation scheduling over IPC."""
+
+    binary = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.binary = _build_or_find_binary()
+        if cls.binary is None:
+            raise unittest.SkipTest("jarvis-core binary unavailable (cargo build it)")
+
+    def _spawn(self, tmp, ipc_requests):
+        config = adapter.write_config(
+            Path(tmp) / "jarvis-core.toml",
+            Path(tmp) / "data",
+            enabled=True,
+            shadow_mode=True,
+            ipc_requests=ipc_requests,
+        )
+        core = adapter.RustCoreProcess(
+            self.binary, config, data_dir=Path(tmp) / "data"
+        )
+        return core.start(), Path(tmp) / "data" / "operational-journal.db"
+
+    def test_ipc_disabled_flag_rolls_back_over_the_wire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp, ipc_requests=False)
+            try:
+                req_id = core.request("schedule_obligation", adapter.obligation(
+                    "ob-off", datetime.now(timezone.utc) + timedelta(hours=1),
+                    "ops.obligation.run",
+                ))
+                response = core.await_response(req_id, timeout=5.0)
+            finally:
+                core.stop()
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["body"]["error"], "ipc_disabled")
+
+    def test_schedule_and_cancel_over_wire(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, journal = self._spawn(tmp, ipc_requests=True)
+            try:
+                req_id = core.request(
+                    "schedule_obligation",
+                    adapter.obligation(
+                        "ob-cancel",
+                        datetime.now(timezone.utc) + timedelta(hours=1),
+                        "ops.obligation.run",
+                    ),
+                )
+                response = core.await_response(req_id, timeout=5.0)
+                self.assertTrue(response["ok"], response)
+                req_id = core.request("cancel_obligation", {"obligation_id": "ob-cancel"})
+                response = core.await_response(req_id, timeout=5.0)
+                self.assertTrue(response["ok"], response)
+                self.assertEqual(response["body"]["status"], "cancelled")
+            finally:
+                core.stop()
+            conn = sqlite3.connect(str(journal))
+            try:
+                status = conn.execute(
+                    "SELECT status FROM scheduled_obligations"
+                    " WHERE obligation_id='ob-cancel'"
+                ).fetchone()
+            finally:
+                conn.close()
+        self.assertEqual(status, ("cancelled",))
+
+    def test_scheduled_obligation_shadow_evaluates_through_policy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, journal = self._spawn(tmp, ipc_requests=True)
+            try:
+                due = datetime.now(timezone.utc) + timedelta(seconds=2)
+                req_id = core.request(
+                    "schedule_obligation",
+                    adapter.obligation("ob-live", due, "ops.obligation.run"),
+                )
+                response = core.await_response(req_id, timeout=5.0)
+                self.assertTrue(response["ok"], response)
+                self.assertEqual(response["body"]["obligation_id"], "ob-live")
+                time.sleep(4.0)  # one tick releases it; shadow records the outcome
+            finally:
+                core.stop()
+            conn = sqlite3.connect(str(journal))
+            try:
+                row = conn.execute(
+                    "SELECT status, last_result FROM scheduled_obligations"
+                    " WHERE obligation_id='ob-live'"
+                ).fetchone()
+                intent = conn.execute(
+                    "SELECT decision, verb, scope FROM action_intents LIMIT 1"
+                ).fetchone()
+                dispatch = conn.execute(
+                    "SELECT mode, outcome FROM dispatch_attempts LIMIT 1"
+                ).fetchone()
+            finally:
+                conn.close()
+        self.assertEqual(row, ("done", "shadow_evaluated"))
+        self.assertEqual(intent, ("allow", "run_obligation", "ops.obligation.run"))
+        self.assertEqual(dispatch, ("shadow", "shadow_evaluated"))
+
+    def test_unknown_op_gets_typed_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp, ipc_requests=True)
+            try:
+                req_id = core.request("teleport_user", {})
+                response = core.await_response(req_id, timeout=5.0)
+            finally:
+                core.stop()
+        self.assertFalse(response["ok"])
+        self.assertEqual(response["body"]["error"], "unknown_op")
 
 
 if __name__ == "__main__":

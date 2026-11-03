@@ -123,7 +123,12 @@ Private session notes and editor settings are intentionally not included.
 - `jarvis-core/` — proposed Rust supervisory runtime (ADR-0006, Stage A
   shadow: evaluates + journals, dispatches nothing). Off by default via
   `[rust_core] enabled` in `jarvis-core.toml`; the Python path is
-  unchanged. Toolchain installed: `rustup` default
+  unchanged. `[rust_core] ipc_requests` (default false) gates the Stage B
+  request surface: `schedule_obligation`/`cancel_obligation` over
+  request/response frames; stdout is protocol-only, tracing logs go to
+  stderr. `scripts/rust_core_adapter.py` is the Python peer;
+  `tools/test_rust_core_protocol.py` runs live wire checks when the
+  binary exists. Toolchain installed: `rustup` default
   `stable-x86_64-pc-windows-gnu` (1.99.1) plus WinLibs mingw `gcc` on PATH
   (`rusqlite/bundled` compiles SQLite from C — `cc` needs `gcc.exe`; no
   MSVC/Visual Studio required). `tools\verify.ps1` runs fmt/clippy/test

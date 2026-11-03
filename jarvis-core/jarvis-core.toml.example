@@ -15,6 +15,9 @@ event_queue_capacity = 256
 dedup_window_seconds = 30
 max_payload_bytes = 16384
 per_source_burst = 32
+# Stage B gate. false = every request frame is answered `ipc_disabled`;
+# true = the limited IPC surface (obligation scheduling) accepts work.
+ipc_requests = false
 
 [scheduler]
 tick_seconds = 1
