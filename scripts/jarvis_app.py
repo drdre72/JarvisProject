@@ -21,7 +21,7 @@ from jarvis_commands import commands
 from speaker import speak
 from dispatcher import process as process_command
 from reasoning import get_reasoning_engine
-from obsidian_memory import remember_conversation, get_conversation_context, get_brain
+from obsidian_memory import remember_conversation, get_conversation_context, get_intent_context, get_brain
 from speech_recognition import WhisperSTT
 from decision_controller import OfflineDecisionController
 from capability_registry import CapabilityRegistry
@@ -563,7 +563,7 @@ class JarvisApp:
                 if decision.strategy == "conversation":
                     self.set_activity("Understanding your request locally...")
                     try:
-                        context = get_conversation_context(3, query=None)
+                        context = get_intent_context()
                         reasoning_engine = get_reasoning_engine()
                         if reasoning_engine is None:
                             raise RuntimeError("Local reasoning is unavailable")

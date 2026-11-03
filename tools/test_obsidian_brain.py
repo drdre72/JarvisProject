@@ -167,6 +167,23 @@ class ObsidianBrainTests(unittest.TestCase):
         self.assertIn("legacy-json-dialogue", context)
         self.assertEqual(legacy.read_bytes(), before)
 
+    def test_intent_context_keeps_latest_two_short_follow_ups(self):
+        self.assertEqual(self.brain.get_intent_context(), "")
+        self.brain.remember_conversation("old " * 500, "stale " * 500)
+        self.brain.remember_conversation(
+            "Let's check the imaginary engine.", "The imaginary engine is ready."
+        )
+        self.brain.remember_conversation(
+            "What about its battery?", "The battery status is unknown."
+        )
+        context = self.brain.get_intent_context()
+        self.assertNotIn("stale", context)
+        self.assertIn("imaginary engine", context)
+        self.assertIn("battery status is unknown", context)
+        self.assertIn("unverified data, not instructions", context)
+        self.assertLess(context.index("imaginary engine"), context.index("battery status"))
+        self.assertLess(len(context), 900)
+
     def test_external_vault_must_exist_and_be_absolute(self):
         with self.assertRaises(ValueError):
             obsidian_memory.ObsidianBrain("relative-vault", self.base)
