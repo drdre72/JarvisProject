@@ -74,6 +74,28 @@ Add-Stage "Python syntax (compileall)" {
     & $Py -m compileall -q main.py scripts tools test_llama.py
 }
 
+Add-Stage "Rust core (if cargo installed)" {
+    # ADR-0006: rust checks run only when a toolchain exists; absence is
+    # reported, not silently passed. && stops at the first failure.
+    # Probe the standard rustup shim too — a shell spawned before install
+    # sees a stale PATH.
+    if (-not (Get-Command cargo -ErrorAction SilentlyContinue) -and
+        (Test-Path "$env:USERPROFILE\.cargo\bin\cargo.exe")) {
+        $env:PATH = "$env:USERPROFILE\.cargo\bin;$env:PATH"
+    }
+    # rusqlite/bundled compiles SQLite from C — needs mingw gcc on PATH.
+    if (-not (Get-Command gcc -ErrorAction SilentlyContinue)) {
+        $mingw = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Packages\BrechtSanders.WinLibs*\mingw64\bin" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+        if ($mingw) { $env:PATH = "$($mingw.FullName);$env:PATH" }
+    }
+    if (Get-Command cargo -ErrorAction SilentlyContinue) {
+        & cmd /c "cd /d `"$RepoRoot\jarvis-core`" && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test --quiet"
+    } else {
+        Write-Output "cargo not found; rust stage skipped (ADR-0006 toolchain pending)"
+    }
+}
+
 Add-Stage "Git hygiene (status + diff --check)" {
     # 'exit' inside this scriptblock would kill the whole -File process before
     # the report prints. diff --check runs LAST so its exit code surfaces via

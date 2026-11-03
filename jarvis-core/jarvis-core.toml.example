@@ -1,0 +1,28 @@
+# jarvis-core supervisor configuration (ADR-0006).
+# Copy to the repository root as jarvis-core.toml.
+
+[rust_core]
+# Master switch. false = the binary exits immediately and the legacy Python
+# runtime is the only thing that runs (default; Stage A rollout).
+enabled = false
+# Evaluate and journal every decision but never dispatch a consequential
+# action. Keep true until Stage B.
+shadow_mode = true
+# Operational data directory for the SQLite journal. `logs/` is gitignored.
+# This is operational memory — NOT the personal/semantic Markdown vault.
+data_dir = "logs/rust-core"
+event_queue_capacity = 256
+dedup_window_seconds = 30
+max_payload_bytes = 16384
+per_source_burst = 32
+
+[scheduler]
+tick_seconds = 1
+# Hard cap on overdue work released per tick.
+max_due_per_tick = 8
+
+[workers]
+heartbeat_timeout_seconds = 30
+max_restart_attempts = 3
+base_backoff_ms = 500
+max_backoff_ms = 30000

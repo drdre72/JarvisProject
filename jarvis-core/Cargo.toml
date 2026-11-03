@@ -1,0 +1,24 @@
+[package]
+name = "jarvis-core"
+version = "0.1.0"
+edition = "2021"
+description = "Persistent supervisory runtime for JARVIS (System A). See docs/decisions/ADR-0006."
+license = "Apache-2.0"
+publish = false
+
+# Dependency policy: minimal, well-established crates only. Commit Cargo.lock
+# after the first build; `cargo vendor` mirrors the wheelhouse pattern for
+# fully offline rebuilds (ADR-0001).
+[dependencies]
+tokio = { version = "1.40", features = ["rt-multi-thread", "macros", "sync", "time", "signal"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+rusqlite = { version = "0.31", features = ["bundled"] }
+thiserror = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+toml = "0.8"
+time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing"] }
+
+[dev-dependencies]
+tempfile = "3"

@@ -120,6 +120,14 @@ Private session notes and editor settings are intentionally not included.
   the model to invent operational state or timestamps.
 - Model: `models/qwen2.5-7b-instruct-q4_k_m.gguf` (Apache-2.0, ungated).
   ~7.5 tok/s on this CPU.
+- `jarvis-core/` — proposed Rust supervisory runtime (ADR-0006, Stage A
+  shadow: evaluates + journals, dispatches nothing). Off by default via
+  `[rust_core] enabled` in `jarvis-core.toml`; the Python path is
+  unchanged. Toolchain installed: `rustup` default
+  `stable-x86_64-pc-windows-gnu` (1.99.1) plus WinLibs mingw `gcc` on PATH
+  (`rusqlite/bundled` compiles SQLite from C — `cc` needs `gcc.exe`; no
+  MSVC/Visual Studio required). `tools\verify.ps1` runs fmt/clippy/test
+  automatically when `cargo` is present.
 
 ## Environment variables
 
@@ -198,6 +206,10 @@ check, unit tests, `compileall`, and git hygiene. Individual pieces:
 - `JARVIS_STATE.md` — single-page current truth. `AGENTS.md` — stable facts.
 - `PROGRESS_LOG.md` — append-only work log. `CURRENT_ISSUES.md` — buglist.
 - `docs/decisions/` — ADRs for architectural choices.
+- `docs/rust-core-audit.md` — Phase Zero architecture inventory for the
+  Rust migration (evidence-backed, cites files).
+- `jarvis-core/` — Rust supervisory crate (ADR-0006): `src/` modules per
+  the crate README; `jarvis-core.toml.example` documents the feature flag.
 - `.devin-context/` — local-only agent memory; excluded from this snapshot.
 - `reports/` — gitignored verification output.
 - `logs/runtime.log` — gitignored rotating inference stage diagnostics;

@@ -131,6 +131,19 @@
 6. Build a sandboxed tool execution boundary and UI review controls before
    any opt-in outward API connector.
 7. PyInstaller packaging once the app is stable in dev mode.
+8. Rust supervisory runtime (`jarvis-core/`): ADR-0006 **proposed**; Phase
+   Zero audit in `docs/rust-core-audit.md`. Stage A shadow scaffold exists —
+   validated state machines, bounded event queue, deterministic attention,
+   durable obligation scheduler, SQLite journal actor, policy engine,
+   worker/restart types, JSON-lines frame codec. Toolchain installed
+   (rustup `stable-x86_64-pc-windows-gnu` 1.99.1 + WinLibs mingw gcc for
+   `rusqlite/bundled`). **Compiles: fmt clean, clippy -D warnings clean,
+   54 tests pass** (52 unit + 2 shadow-runtime integration); `verify.ps1`
+   runs the Rust stage automatically when cargo is found. Python path
+   unchanged; the flag defaults to `enabled = false`. Binary smoke test:
+   `enabled=false` inert exit, shadow-mode stdin frame journaled, malformed
+   input dropped, DB durable after kill. Not yet exercised against the
+   live Python worker or OS sleep/restart.
 
 ## Rules of interpretation
 

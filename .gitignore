@@ -58,6 +58,10 @@ node_modules/
 package-lock.json
 wheelhouse/
 
+# Rust core build output and local config
+jarvis-core/target/
+jarvis-core.toml
+
 # Updates directory
 updates/
 
