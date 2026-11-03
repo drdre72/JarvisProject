@@ -146,7 +146,13 @@
    input dropped, supervisor outlives closed stdin, `enabled=false` inert
    exit. First Stage B surface wired: `schedule_obligation`/`cancel_obligation`
    over request/response frames (stdout=protocol, stderr=logs), persisted
-   before ack, still shadow-evaluated — no consequential dispatch. Stage A
+   before ack, still shadow-evaluated — no consequential dispatch. The app
+   now exercises it: at feed start it registers durable obligation
+   `obl-review-reminder` (daily, scope `ops.obligation.run`) — the first
+   function Python genuinely delegates. Local jarvis-core.toml runs
+   `ipc_requests = true`; flipping to false is the tested rollback.
+   `duplicate_obligation` is a typed response so relaunches re-register
+   idempotently. Stage A
    comparison feed live: `jarvis-core.toml` `enabled=true` makes
    `scripts/rust_core_feed.py` emit trace-correlated
    UserRequestReceived + turn_completed pairs (metadata only) from

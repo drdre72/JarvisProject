@@ -2,9 +2,11 @@
 the jarvis_app turn wiring. No binary, vault, or transcript is touched.
 """
 
+import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -36,6 +38,22 @@ class FakeProcess:
 
     def stop(self, timeout=5.0):
         self.stopped = True
+
+
+class RequestingProcess(FakeProcess):
+    """Fake that answers IPC requests with a queued response shape."""
+
+    def __init__(self, response=None, **kwargs):
+        super().__init__(**kwargs)
+        self.response = response or {"ok": True, "body": {}}
+        self.requests = []
+
+    def request(self, op, args=None, request_id=None):
+        self.requests.append((op, args))
+        return "req-1"
+
+    def await_response(self, request_id, timeout=5.0):
+        return self.response
 
 
 class ActivationGateTests(unittest.TestCase):
@@ -159,6 +177,60 @@ class SupervisorLifecycleTests(unittest.TestCase):
             feed.close()
 
 
+class ObligationRequestTests(unittest.TestCase):
+    """Stage B surface: request passthrough and idempotent registration."""
+
+    def test_request_returns_response_data(self):
+        proc = RequestingProcess(response={"ok": True, "body": {"obligation_id": "x"}})
+        feed = rust_core_feed.RustCoreFeed(proc)
+        data = feed.request("schedule_obligation", {"obligation_id": "x"})
+        self.assertEqual(data["body"]["obligation_id"], "x")
+        self.assertEqual(proc.requests[0][0], "schedule_obligation")
+
+    def test_request_failure_is_isolated(self):
+        proc = RequestingProcess()
+        proc.request = Mock(side_effect=RuntimeError("pipe gone"))
+        feed = rust_core_feed.RustCoreFeed(proc)
+        self.assertIsNone(feed.request("schedule_obligation", {}))
+        self.assertEqual(feed.emit_errors, 1)
+
+    def test_request_on_dead_feed_is_none(self):
+        proc = RequestingProcess(running=False)
+        feed = rust_core_feed.RustCoreFeed(proc)
+        feed.dead = True
+        self.assertIsNone(feed.request("cancel_obligation", {}))
+
+    def test_ensure_obligation_mappings(self):
+        cases = [
+            ({"ok": True, "body": {}}, "armed"),
+            ({"ok": False, "body": {"error": "duplicate_obligation"}}, "already_armed"),
+            ({"ok": False, "body": {"error": "ipc_disabled"}}, "rejected"),
+        ]
+        for response, expected in cases:
+            feed = rust_core_feed.RustCoreFeed(RequestingProcess(response=response))
+            self.assertEqual(feed.ensure_obligation({"obligation_id": "o"}), expected)
+        dead = rust_core_feed.RustCoreFeed(RequestingProcess(running=False))
+        dead.dead = True
+        self.assertIsNone(dead.ensure_obligation({"obligation_id": "o"}))
+
+    def test_review_reminder_shape(self):
+        proc = RequestingProcess(response={"ok": True, "body": {}})
+        feed = rust_core_feed.RustCoreFeed(proc)
+        moment = datetime(2026, 11, 3, 12, 0, tzinfo=timezone.utc)
+        result = rust_core_feed.ensure_review_reminder(feed, now=moment)
+        self.assertEqual(result, "armed")
+        _, args = proc.requests[0]
+        self.assertEqual(args["obligation_id"], "obl-review-reminder")
+        self.assertEqual(args["scope"], "ops.obligation.run")
+        self.assertEqual(args["origin"], "jarvis-app")
+        self.assertEqual(args["recurrence_seconds"], 86400)
+        self.assertEqual(args["missed_policy"], "run_once_on_recovery")
+        self.assertEqual(args["next_run_at_utc"], "2026-11-04T12:00:00Z")
+        # No user data rides in the obligation record.
+        self.assertNotIn("note", json.dumps(args).lower())
+        self.assertNotIn("text", json.dumps(args).lower())
+
+
 class JarvisAppWiringTests(unittest.TestCase):
     def _app(self, feed):
         import jarvis_app
@@ -234,6 +306,21 @@ class JarvisAppWiringTests(unittest.TestCase):
         app.cleanup()
         app.cleanup()  # disconnect + exit both call it; feed closes once
         feed.close.assert_called_once()
+
+    def test_register_obligations_delegates_reminder(self):
+        import jarvis_app
+
+        feed = Mock(spec=["ensure_obligation"])
+        feed.ensure_obligation.return_value = "armed"
+        app = self._app(feed)
+        app._register_rust_obligations()
+        self.assertEqual(feed.ensure_obligation.call_count, 1)
+
+    def test_register_obligations_noop_without_feed(self):
+        import jarvis_app
+
+        app = self._app(None)
+        app._register_rust_obligations()  # must not raise
 
 
 if __name__ == "__main__":

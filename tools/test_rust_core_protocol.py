@@ -20,6 +20,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "scripts"))
+sys.path.insert(0, str(ROOT / "tools"))  # discover adds it; -m unittest does not
 
 import rust_core_adapter as adapter
 import rust_core_feed
@@ -245,6 +246,94 @@ class StageBWireTests(unittest.TestCase):
                 core.stop()
         self.assertFalse(response["ok"])
         self.assertEqual(response["body"]["error"], "unknown_op")
+
+    def test_duplicate_obligation_is_typed_for_idempotent_registration(self):
+        """App relaunch re-registers stable IDs; 'already armed' is not an error."""
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp, ipc_requests=True)
+            try:
+                args = adapter.obligation(
+                    "obl-review-reminder",
+                    datetime.now(timezone.utc) + timedelta(hours=24),
+                    "ops.obligation.run",
+                    recurrence_seconds=86400,
+                )
+                first = core.await_response(
+                    core.request("schedule_obligation", args), timeout=5.0
+                )
+                second = core.await_response(
+                    core.request("schedule_obligation", args), timeout=5.0
+                )
+            finally:
+                core.stop()
+        self.assertTrue(first["ok"], first)
+        self.assertFalse(second["ok"])
+        self.assertEqual(second["body"]["error"], "duplicate_obligation")
+
+    def test_feed_ensure_obligation_maps_armed_then_already_armed(self):
+        """The Python mapping the app relies on at every launch."""
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp, ipc_requests=True)
+            feed = rust_core_feed.RustCoreFeed(core)
+            try:
+                args = adapter.obligation(
+                    "obl-review-reminder",
+                    datetime.now(timezone.utc) + timedelta(hours=24),
+                    "ops.obligation.run",
+                    recurrence_seconds=86400,
+                )
+                self.assertEqual(feed.ensure_obligation(args), "armed")
+                self.assertEqual(feed.ensure_obligation(args), "already_armed")
+            finally:
+                feed.close()
+
+    def test_obligation_survives_supervisor_restart(self):
+        """Journal restore re-arms the function after a supervisor crash."""
+        with tempfile.TemporaryDirectory() as tmp:
+            core, journal = self._spawn(tmp, ipc_requests=True)
+            try:
+                due = datetime.now(timezone.utc) + timedelta(seconds=2)
+                response = core.await_response(
+                    core.request(
+                        "schedule_obligation",
+                        adapter.obligation(
+                            "ob-restart", due, "ops.obligation.run",
+                            recurrence_seconds=5,
+                        ),
+                    ),
+                    timeout=5.0,
+                )
+                self.assertTrue(response["ok"], response)
+            finally:
+                core.stop()  # killed before the obligation could fire
+
+            core2, _ = self._spawn(tmp, ipc_requests=True)
+            try:
+                time.sleep(6.0)  # restore -> due -> shadow dispatch
+            finally:
+                core2.stop()
+
+            conn = sqlite3.connect(str(journal))
+            try:
+                intents = conn.execute(
+                    "SELECT verb, scope, decision FROM action_intents"
+                ).fetchall()
+                dispatches = conn.execute(
+                    "SELECT mode, outcome FROM dispatch_attempts"
+                ).fetchall()
+                row = conn.execute(
+                    "SELECT status, last_result FROM scheduled_obligations"
+                    " WHERE obligation_id='ob-restart'"
+                ).fetchone()
+            finally:
+                conn.close()
+        self.assertIn(("run_obligation", "ops.obligation.run", "allow"), intents)
+        self.assertTrue(dispatches)
+        for mode, outcome in dispatches:
+            # Obligation dispatches record shadow_evaluated; the invariant
+            # is that mode never leaves shadow.
+            self.assertEqual(mode, "shadow")
+        self.assertEqual(row[1], "shadow_evaluated")
 
 
 class StageAFeedTests(unittest.TestCase):

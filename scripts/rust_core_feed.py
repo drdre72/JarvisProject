@@ -11,6 +11,7 @@ belong on this channel.
 import subprocess
 import threading
 import tomllib
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import rust_core_adapter as adapter
@@ -20,6 +21,13 @@ CONFIG_NAME = "jarvis-core.toml"
 PID_FILE = "feed.pid"
 SUPERVISOR_IMAGE = "jarvis-core"
 _MAX_SEND_FAILURES = 8
+
+# The one function Python delegates to Rust in Stage B: a durable daily
+# reminder that review proposals may be pending approval. Stable ID makes
+# re-registration at each launch idempotent; the due dispatch stays
+# shadow-evaluated like everything else until Stage C.
+REVIEW_REMINDER_ID = "obl-review-reminder"
+REVIEW_REMINDER_RECURRENCE_S = 24 * 60 * 60
 
 
 def _repo_root():
@@ -104,6 +112,43 @@ class RustCoreFeed:
                 )
             return False
 
+    def request(self, op, args=None, timeout=2.0):
+        """Send one Stage B IPC request; returns the response data or None.
+
+        Failure-isolated like emit: a transport fault never surfaces in a
+        turn, it just disables the feed. The lock spans send+await so two
+        requests can't interleave on one stdin.
+        """
+        if self.dead:
+            return None
+        try:
+            with self._lock:
+                request_id = self._process.request(op, args)
+                return self._process.await_response(request_id, timeout=timeout)
+        except Exception as error:
+            self.emit_errors += 1
+            if not self._process.is_running() or self.emit_errors >= _MAX_SEND_FAILURES:
+                self.dead = True
+                get_runtime_logger().warning(
+                    "rust core feed disabled type=%s errors=%d",
+                    type(error).__name__,
+                    self.emit_errors,
+                )
+            return None
+
+    def ensure_obligation(self, obligation_dict, timeout=2.0):
+        """Idempotent schedule: 'armed', 'already_armed', 'rejected', None."""
+        data = self.request("schedule_obligation", args=obligation_dict, timeout=timeout)
+        if data is None:
+            return None
+        if data.get("ok"):
+            return "armed"
+        error = data.get("body", {}).get("error")
+        if error == "duplicate_obligation":
+            return "already_armed"
+        get_runtime_logger().info("rust obligation rejected error=%s", error)
+        return "rejected"
+
     def close(self):
         try:
             self._process.stop()
@@ -165,3 +210,29 @@ def start_if_enabled(root=None, binary=None):
         get_runtime_logger().warning("rust core pid file write failed")
     get_runtime_logger().info("rust core shadow feed active")
     return RustCoreFeed(process, pid_path)
+
+
+def ensure_review_reminder(feed, now=None):
+    """Register the daily pending-review obligation with the supervisor.
+
+    Carries no user data — just a stable ID, scope, and recurrence. When it
+    fires, Rust evaluates it through attention + policy and journals the
+    shadow dispatch; nothing consequential runs until Stage C. Returns
+    'armed' | 'already_armed' | 'rejected' | None (transport failure or a
+    supervisor with ipc_requests off — the rollback path).
+    """
+    moment = now if now is not None else datetime.now(timezone.utc)
+    result = feed.ensure_obligation(
+        adapter.obligation(
+            REVIEW_REMINDER_ID,
+            moment + timedelta(seconds=REVIEW_REMINDER_RECURRENCE_S),
+            scope="ops.obligation.run",
+            origin="jarvis-app",
+            priority=3,
+            recurrence_seconds=REVIEW_REMINDER_RECURRENCE_S,
+            missed_policy="run_once_on_recovery",
+        )
+    )
+    if result is not None:
+        get_runtime_logger().info("review reminder obligation %s", result)
+    return result

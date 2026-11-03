@@ -80,6 +80,7 @@ class JarvisApp:
         # jarvis-core.toml is absent/disabled or the binary cannot start;
         # every emit is failure-isolated and carries no transcript content.
         self.rust_feed = rust_core_feed.start_if_enabled()
+        self._register_rust_obligations()
 
         # Initialize audio and system monitoring
         self.setup_page()
@@ -520,6 +521,17 @@ class JarvisApp:
         """Show progress during local inference without storing it as conversation."""
         self.activity_text.value = message
         self.page.update()
+
+    def _register_rust_obligations(self):
+        """Stage B: hand the supervisor the durable obligations Python owns.
+
+        Currently one: the daily pending-review reminder. Idempotent —
+        a restored obligation answers 'already_armed'; ipc_requests off
+        answers 'rejected' and Stage A behavior is fully preserved.
+        """
+        feed = getattr(self, "rust_feed", None)
+        if feed is not None:
+            rust_core_feed.ensure_review_reminder(feed)
 
     def _rust_turn_start(self, voice_generation):
         """Emit UserRequestReceived for the shadow supervisor; returns trace."""

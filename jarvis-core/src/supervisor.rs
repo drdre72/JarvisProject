@@ -16,7 +16,9 @@ use crate::events::{
 use crate::health::ResourceSnapshot;
 use crate::journal::{JournalError, JournalHandle};
 use crate::policy::{ActionRequest, Decision, PolicyEngine, Requester};
-use crate::scheduler::{DueItem, Obligation, ObligationStatus, Scheduler, TickOutcome};
+use crate::scheduler::{
+    DueItem, Obligation, ObligationStatus, ScheduleError, Scheduler, TickOutcome,
+};
 use crate::state::{CognitiveMachine, CognitiveState};
 use crate::transport::{FrameBody, InboundRequest, WireFrame};
 use serde_json::{json, Value};
@@ -199,10 +201,16 @@ impl Supervisor {
             return;
         }
         if let Err(e) = self.scheduler.schedule(obligation.clone()) {
+            // A re-registered stable ID is idempotent, not a fault: callers
+            // distinguish "already armed" from real schedule failures.
+            let code = match e {
+                ScheduleError::Duplicate(_) => "duplicate_obligation",
+                _ => "schedule_error",
+            };
             self.respond(
                 request_id,
                 false,
-                json!({"error": "schedule_error", "detail": e.to_string()}),
+                json!({"error": code, "detail": e.to_string()}),
             )
             .await;
             return;
