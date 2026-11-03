@@ -116,9 +116,22 @@ def main():
 
             def app_main(page: ft.Page):
                 app = JarvisApp(page)
+                app_holder["app"] = app
+                # Flet fires on_disconnect when the window closes; the
+                # finally below is a second, idempotent safety call.
+                page.on_disconnect = lambda event: app.cleanup()
 
+            app_holder = {}
             print("[Main] Starting user interface...")
-            ft.app(target=app_main, port=0)
+            try:
+                ft.app(target=app_main, port=0)
+            finally:
+                app = app_holder.get("app")
+                if app is not None:
+                    try:
+                        app.cleanup()
+                    except Exception as e:
+                        print(f"[Main] Cleanup error: {e}")
 
         except ImportError as e:
             print(f"[Main] ERROR: Failed to import application modules: {e}")

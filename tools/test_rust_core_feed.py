@@ -21,6 +21,7 @@ class FakeProcess:
         self.fail_on_send = fail_on_send
         self.running = running
         self.stopped = False
+        self.pid = 4242
 
     def start(self):
         return self
@@ -98,6 +99,66 @@ class EmitBehaviorTests(unittest.TestCase):
         self.assertTrue(proc.stopped)
 
 
+class SupervisorLifecycleTests(unittest.TestCase):
+    """Pid-file bookkeeping: reap orphans from crashed runs, clean up ours."""
+
+    def _enabled_root(self, tmp):
+        adapter.write_config(Path(tmp) / "jarvis-core.toml", tmp, enabled=True)
+
+    def test_start_writes_pid_file_and_close_removes_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._enabled_root(tmp)
+            with patch.object(
+                rust_core_feed.adapter, "RustCoreProcess", return_value=FakeProcess()
+            ):
+                feed = rust_core_feed.start_if_enabled(root=tmp, binary="x/bin")
+            pid_path = Path(tmp) / "feed.pid"  # test config uses tmp as data_dir
+            self.assertEqual(pid_path.read_text("utf-8"), "4242")
+            feed.close()
+            self.assertFalse(pid_path.exists())
+
+    def test_stale_supervisor_reaped_before_spawn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._enabled_root(tmp)
+            (Path(tmp) / "feed.pid").write_text("4242", "utf-8")
+            with patch.object(
+                rust_core_feed, "_supervisor_alive", return_value=True
+            ), patch.object(rust_core_feed.subprocess, "run") as run, patch.object(
+                rust_core_feed.adapter, "RustCoreProcess", return_value=FakeProcess()
+            ):
+                feed = rust_core_feed.start_if_enabled(root=tmp, binary="x/bin")
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[0], ["taskkill", "/PID", "4242", "/F"])
+            self.assertIsNotNone(feed)
+            feed.close()
+
+    def test_dead_or_foreign_pid_is_not_killed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._enabled_root(tmp)
+            (Path(tmp) / "feed.pid").write_text("4242", "utf-8")
+            with patch.object(
+                rust_core_feed, "_supervisor_alive", return_value=False
+            ), patch.object(rust_core_feed.subprocess, "run") as run, patch.object(
+                rust_core_feed.adapter, "RustCoreProcess", return_value=FakeProcess()
+            ):
+                feed = rust_core_feed.start_if_enabled(root=tmp, binary="x/bin")
+            run.assert_not_called()
+            feed.close()
+
+    def test_corrupt_pid_file_ignored(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._enabled_root(tmp)
+            (Path(tmp) / "feed.pid").write_text("not-a-pid", "utf-8")
+            with patch.object(
+                rust_core_feed, "_supervisor_alive"
+            ) as alive, patch.object(
+                rust_core_feed.adapter, "RustCoreProcess", return_value=FakeProcess()
+            ):
+                feed = rust_core_feed.start_if_enabled(root=tmp, binary="x/bin")
+            alive.assert_not_called()
+            feed.close()
+
+
 class JarvisAppWiringTests(unittest.TestCase):
     def _app(self, feed):
         import jarvis_app
@@ -164,6 +225,15 @@ class JarvisAppWiringTests(unittest.TestCase):
         app = self._app(None)
         with patch.object(jarvis_app, "speak"):
             app.process_user_command("exit")  # must not raise
+
+    def test_cleanup_closes_feed_once(self):
+        import jarvis_app
+
+        feed = Mock(spec=["close"])
+        app = self._app(feed)
+        app.cleanup()
+        app.cleanup()  # disconnect + exit both call it; feed closes once
+        feed.close.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -8,6 +8,7 @@ timings): the journal persists them, so transcripts and prompts never
 belong on this channel.
 """
 
+import subprocess
 import threading
 import tomllib
 from pathlib import Path
@@ -16,6 +17,8 @@ import rust_core_adapter as adapter
 from runtime_log import get_runtime_logger
 
 CONFIG_NAME = "jarvis-core.toml"
+PID_FILE = "feed.pid"
+SUPERVISOR_IMAGE = "jarvis-core"
 _MAX_SEND_FAILURES = 8
 
 
@@ -23,11 +26,52 @@ def _repo_root():
     return Path(__file__).resolve().parent.parent
 
 
+def _supervisor_alive(pid):
+    """True when a live process with this PID is a jarvis-core binary."""
+    try:
+        result = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {pid}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return SUPERVISOR_IMAGE in result.stdout.lower()
+
+
+def _reap_stale_supervisor(data_dir):
+    """Kill a leftover shadow supervisor from a crashed or killed app run.
+
+    jarvis-core is designed to outlive a dead parent, and the feed spawns
+    one instance per app launch — so a stale survivor must be reaped before
+    a fresh process binds the same journal directory. The pid file scopes
+    this to supervisors the feed itself spawned (a manually run jarvis-core
+    is left alone), and the image-name check defends against PID reuse.
+    Returns the reaped pid or None.
+    """
+    try:
+        pid = int((data_dir / PID_FILE).read_text(encoding="utf-8").strip())
+    except (OSError, ValueError):
+        return None
+    if not _supervisor_alive(pid):
+        return None
+    try:
+        subprocess.run(
+            ["taskkill", "/PID", str(pid), "/F"], capture_output=True, timeout=10
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    get_runtime_logger().info("reaped stale shadow supervisor pid=%d", pid)
+    return pid
+
+
 class RustCoreFeed:
     """Failure-isolated event emitter over one RustCoreProcess."""
 
-    def __init__(self, process):
+    def __init__(self, process, pid_path=None):
         self._process = process
+        self._pid_path = Path(pid_path) if pid_path is not None else None
         self._lock = threading.Lock()
         self.emit_errors = 0
         self.dead = False
@@ -67,6 +111,11 @@ class RustCoreFeed:
             get_runtime_logger().warning(
                 "rust core stop failed type=%s", type(error).__name__
             )
+        if self._pid_path is not None:
+            try:
+                self._pid_path.unlink(missing_ok=True)
+            except OSError:
+                pass
 
 
 def start_if_enabled(root=None, binary=None):
@@ -98,6 +147,7 @@ def start_if_enabled(root=None, binary=None):
         )
         return None
     data_dir = root / section.get("data_dir", "logs/rust-core")
+    _reap_stale_supervisor(data_dir)
     try:
         process = adapter.RustCoreProcess(
             binary, config_path, data_dir=data_dir
@@ -107,5 +157,11 @@ def start_if_enabled(root=None, binary=None):
             "rust core spawn failed type=%s", type(error).__name__
         )
         return None
+    pid_path = data_dir / PID_FILE
+    try:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        pid_path.write_text(str(process.pid), encoding="utf-8")
+    except OSError:
+        get_runtime_logger().warning("rust core pid file write failed")
     get_runtime_logger().info("rust core shadow feed active")
-    return RustCoreFeed(process)
+    return RustCoreFeed(process, pid_path)

@@ -152,7 +152,12 @@
    UserRequestReceived + turn_completed pairs (metadata only) from
    `process_user_command`; `tools/inspect_rust_journal.py --check-shadow`
    summarizes per-trace decisions and fails on any non-shadow dispatch.
-   Not yet exercised against the live Python worker or OS sleep/restart.
+   Live-tested 2026-11-02: 8 real voice turns journaled as correlated
+   accepted pairs, shadow invariant held, zero transcript content. The
+   test also exposed that cleanup() was never wired — now fixed via
+   page.on_disconnect + main.py finally + feed.pid stale-supervisor
+   reaping. Not yet exercised against the live Python worker or OS
+   sleep/restart.
 
 ## Rules of interpretation
 

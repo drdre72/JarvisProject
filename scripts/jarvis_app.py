@@ -961,10 +961,14 @@ class JarvisApp:
         self.add_chat_message("assistant", STARTUP_GREETING)
 
     def cleanup(self):
-        """Clean up resources when app closes"""
+        """Clean up resources when app closes; idempotent — Flet disconnect
+        and process exit paths can both call it."""
+        if getattr(self, "_cleaned_up", False):
+            return
+        self._cleaned_up = True
         self.should_monitor = False
         self.is_listening = False
-        self._voice_generation += 1
+        self._voice_generation = getattr(self, "_voice_generation", 0) + 1
         feed = getattr(self, "rust_feed", None)
         if feed is not None:
             feed.close()

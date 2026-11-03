@@ -374,6 +374,10 @@ class RustCoreProcess:
         except (OSError, ValueError):
             pass
 
+    @property
+    def pid(self):
+        return self._proc.pid if self._proc is not None else None
+
     def is_running(self):
         return self._proc is not None and self._proc.poll() is None
 
