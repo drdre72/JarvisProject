@@ -9,8 +9,59 @@ import json
 import threading
 import time
 from pathlib import Path
+from types import SimpleNamespace
 
+import rust_core_feed
 from runtime_log import get_runtime_logger
+
+
+def _relay_result(cmd, reply, timeout):
+    """Map the supervisor's typed job outcome onto the same contract the
+    legacy subprocess path uses: a CompletedProcess-like result, or the
+    same exceptions the call sites already handle."""
+    status = reply.get("status")
+    if status == "completed":
+        return SimpleNamespace(
+            returncode=reply.get("exit_code") or 0,
+            stdout=reply.get("stdout", ""),
+            stderr=reply.get("stderr", ""),
+        )
+    if status in ("timeout", "unknown"):
+        # 'unknown' means the request reached the supervisor but the reply
+        # was lost — the job may still be running; treat as timed out and
+        # never silently re-dispatch it.
+        raise subprocess.TimeoutExpired(cmd, timeout)
+    if status == "cancelled":
+        raise RuntimeError("Local inference was cancelled")
+    if status == "spawn_failed":
+        raise OSError(reply.get("detail") or "inference binary unavailable")
+    raise RuntimeError(
+        f"Local inference failed: {status} {reply.get('detail', '')}"
+    )
+
+
+def _dispatch(cmd, timeout):
+    """Run argv through the Rust supervisor when inference_relay is on;
+    the identical local subprocess otherwise. The supervisor owns the
+    executable (config [inference] binary) and the kill/timeout authority;
+    argv minus argv[0] is the worker's call."""
+    feed = rust_core_feed.active_feed()
+    if feed is not None and feed.inference_relay:
+        reply = feed.run_inference(cmd[1:], timeout)
+        if reply is None:
+            get_runtime_logger().warning(
+                "inference relay unreachable before send; local subprocess"
+            )
+        else:
+            return _relay_result(cmd, reply, timeout)
+    return subprocess.run(
+        cmd,
+        stdin=subprocess.DEVNULL,
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        timeout=timeout,
+    )
 
 class LlamaReasoning:
     def __init__(self, model_path=None, context_size=4096):
@@ -88,15 +139,8 @@ class LlamaReasoning:
         start = time.monotonic()
         outcome = "error"
         try:
-            # Run llama.cpp and capture output
-            result = subprocess.run(
-                cmd,
-                stdin=subprocess.DEVNULL,
-                capture_output=True,
-                text=True,
-                encoding='utf-8',
-                timeout=timeout
-            )
+            # Run llama.cpp and capture output (via Rust relay when enabled)
+            result = _dispatch(cmd, timeout)
 
             if result.returncode == 0:
                 outcome = "ok"
@@ -211,10 +255,7 @@ class LlamaReasoning:
         start = time.monotonic()
         outcome = "error"
         try:
-            result = subprocess.run(
-                cmd, stdin=subprocess.DEVNULL, capture_output=True,
-                text=True, encoding="utf-8", timeout=timeout,
-            )
+            result = _dispatch(cmd, timeout)
             if result.returncode != 0:
                 outcome = f"exit_{result.returncode}"
                 raise RuntimeError("Local interpretation is unavailable")

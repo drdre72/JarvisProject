@@ -10,6 +10,7 @@ pub mod attention;
 pub mod config;
 pub mod events;
 pub mod health;
+pub mod inference;
 pub mod journal;
 pub mod policy;
 pub mod scheduler;

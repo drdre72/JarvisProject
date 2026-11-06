@@ -43,6 +43,11 @@ pub struct RustCoreSection {
     /// Stage B gate: false answers every request frame with `ipc_disabled`
     /// so the limited function can be rolled back without killing the loop.
     pub ipc_requests: bool,
+    /// Stage B gate for the inference-lifecycle function specifically.
+    /// false answers `run_inference`/`cancel_inference` with
+    /// `inference_disabled`; the Python side then keeps its own subprocess
+    /// path — this flag IS the rollback.
+    pub inference_relay: bool,
 }
 
 impl Default for RustCoreSection {
@@ -56,6 +61,7 @@ impl Default for RustCoreSection {
             max_payload_bytes: 16 * 1024,
             per_source_burst: 32,
             ipc_requests: false,
+            inference_relay: false,
         }
     }
 }
@@ -98,12 +104,52 @@ impl Default for WorkersSection {
     }
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(default)]
+pub struct InferenceSection {
+    /// The binary the supervisor may spawn — workers supply argv only, so
+    /// the executable itself stays under supervisor authority.
+    pub binary: PathBuf,
+    /// Default per-job wall-clock budget; requests may clamp lower.
+    pub default_timeout_seconds: u64,
+    /// Hard ceiling any request-side timeout is clamped to.
+    pub max_timeout_seconds: u64,
+    /// In-flight job cap. 1 matches the serialized turn pipeline today.
+    pub max_concurrent: usize,
+    pub max_argv_count: usize,
+    /// Total bytes across all argv entries — the prompt travels inside it.
+    pub max_argv_bytes: usize,
+    /// Captured output caps; over-cap kills the child as output_overflow.
+    pub max_stdout_bytes: u64,
+    pub max_stderr_bytes: u64,
+}
+
+impl Default for InferenceSection {
+    fn default() -> Self {
+        Self {
+            binary: PathBuf::from("bin/llama-completion.exe"),
+            default_timeout_seconds: 120,
+            max_timeout_seconds: 300,
+            max_concurrent: 1,
+            max_argv_count: 64,
+            max_argv_bytes: 48 * 1024,
+            max_stdout_bytes: 32 * 1024,
+            max_stderr_bytes: 8 * 1024,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 #[serde(default)]
 pub struct CoreConfig {
     pub rust_core: RustCoreSection,
     pub scheduler: SchedulerSection,
     pub workers: WorkersSection,
+    pub inference: InferenceSection,
+    /// Directory the config file lived in — the anchor for relative paths
+    /// like `inference.binary`. Set by `load`; empty for default configs.
+    #[serde(skip)]
+    pub config_dir: PathBuf,
 }
 
 impl CoreConfig {
@@ -123,10 +169,11 @@ impl CoreConfig {
             path: path.to_path_buf(),
             source,
         })?;
-        let cfg: CoreConfig = toml::from_str(&text).map_err(|source| ConfigError::Parse {
+        let mut cfg: CoreConfig = toml::from_str(&text).map_err(|source| ConfigError::Parse {
             path: path.to_path_buf(),
             source: Box::new(source),
         })?;
+        cfg.config_dir = path.parent().map(|p| p.to_path_buf()).unwrap_or_default();
         cfg.validate()?;
         Ok(cfg)
     }
@@ -177,12 +224,45 @@ impl CoreConfig {
                 "workers.base_backoff_ms must not exceed max_backoff_ms",
             ));
         }
+        let inf = &self.inference;
+        if inf.max_concurrent == 0 || inf.max_concurrent > 4 {
+            return Err(ConfigError::Validation(
+                "inference.max_concurrent must be in 1..=4",
+            ));
+        }
+        if inf.default_timeout_seconds == 0 || inf.max_timeout_seconds == 0 {
+            return Err(ConfigError::Validation("inference timeouts must be >= 1"));
+        }
+        if inf.default_timeout_seconds > inf.max_timeout_seconds {
+            return Err(ConfigError::Validation(
+                "inference.default_timeout_seconds must not exceed max_timeout_seconds",
+            ));
+        }
+        if inf.max_argv_count == 0 || inf.max_argv_bytes == 0 {
+            return Err(ConfigError::Validation("inference argv caps must be >= 1"));
+        }
+        if inf.max_stdout_bytes == 0 || inf.max_stderr_bytes == 0 {
+            return Err(ConfigError::Validation(
+                "inference output caps must be >= 1",
+            ));
+        }
         Ok(())
     }
 
     /// SQLite operational journal (separate from the Markdown personal vault).
     pub fn journal_path(&self) -> PathBuf {
         self.rust_core.data_dir.join("operational-journal.db")
+    }
+
+    /// The worker binary Rust may spawn, resolved against the config file's
+    /// directory so a relative `inference.binary` does not depend on CWD.
+    pub fn inference_binary(&self) -> PathBuf {
+        let b = &self.inference.binary;
+        if b.is_absolute() {
+            b.clone()
+        } else {
+            self.config_dir.join(b)
+        }
     }
 }
 

@@ -80,13 +80,29 @@ class RustCoreFeed:
     def __init__(self, process, pid_path=None):
         self._process = process
         self._pid_path = Path(pid_path) if pid_path is not None else None
-        self._lock = threading.Lock()
+        # Two different concerns: _send_lock serializes stdin writes;
+        # _request_gate single-flights request/response so a 45s inference
+        # call never blocks turn event emits.
+        self._send_lock = threading.Lock()
+        self._request_gate = threading.Lock()
+        # Set by start_if_enabled from [rust_core] inference_relay.
+        self.inference_relay = False
         self.emit_errors = 0
         self.dead = False
 
     @property
     def process(self):
         return self._process
+
+    def _count_fault(self, error):
+        self.emit_errors += 1
+        if not self._process.is_running() or self.emit_errors >= _MAX_SEND_FAILURES:
+            self.dead = True
+            get_runtime_logger().warning(
+                "rust core feed disabled type=%s errors=%d",
+                type(error).__name__,
+                self.emit_errors,
+            )
 
     def new_trace(self):
         return adapter.new_id("trace")
@@ -96,45 +112,105 @@ class RustCoreFeed:
         if self.dead:
             return False
         try:
-            with self._lock:
+            with self._send_lock:
                 self._process.send_event(
                     source, event_type, payload, dedup_key, trace_id=trace_id
                 )
             return True
         except Exception as error:  # a feed fault must never surface in a turn
-            self.emit_errors += 1
-            if not self._process.is_running() or self.emit_errors >= _MAX_SEND_FAILURES:
-                self.dead = True
-                get_runtime_logger().warning(
-                    "rust core feed disabled type=%s errors=%d",
-                    type(error).__name__,
-                    self.emit_errors,
-                )
+            self._count_fault(error)
             return False
 
     def request(self, op, args=None, timeout=2.0):
         """Send one Stage B IPC request; returns the response data or None.
 
-        Failure-isolated like emit: a transport fault never surfaces in a
-        turn, it just disables the feed. The lock spans send+await so two
-        requests can't interleave on one stdin.
+        Single-flighted: a second caller waits up to `timeout` for the gate,
+        then gets None — a busy channel is not a fault and does not count
+        against the feed's error budget.
         """
         if self.dead:
             return None
-        try:
-            with self._lock:
-                request_id = self._process.request(op, args)
-                return self._process.await_response(request_id, timeout=timeout)
-        except Exception as error:
-            self.emit_errors += 1
-            if not self._process.is_running() or self.emit_errors >= _MAX_SEND_FAILURES:
-                self.dead = True
-                get_runtime_logger().warning(
-                    "rust core feed disabled type=%s errors=%d",
-                    type(error).__name__,
-                    self.emit_errors,
-                )
+        if not self._request_gate.acquire(timeout=timeout):
             return None
+        try:
+            with self._send_lock:
+                request_id = self._process.request(op, args)
+            return self._process.await_response(request_id, timeout=timeout)
+        except Exception as error:
+            self._count_fault(error)
+            return None
+        finally:
+            self._request_gate.release()
+
+    def run_inference(self, argv, timeout_s):
+        """Dispatch one bounded inference job through the supervisor.
+
+        Returns a reply dict, or None when the request provably never
+        reached the supervisor — only then is a local fallback safe. A
+        lost reply yields {"status": "unknown"}: the job may still be
+        running, so the caller must not re-dispatch.
+        """
+        if self.dead:
+            return None
+        if not self._request_gate.acquire(timeout=min(timeout_s, 30.0)):
+            return {"status": "busy"}
+        try:
+            try:
+                with self._send_lock:
+                    request_id = self._process.request(
+                        "run_inference",
+                        {"argv": list(argv), "timeout_ms": int(timeout_s * 1000)},
+                    )
+            except Exception as error:
+                self._count_fault(error)
+                return None  # never sent — local fallback is safe
+            try:
+                data = self._process.await_response(
+                    request_id, timeout=timeout_s + 10
+                )
+            except Exception as error:
+                get_runtime_logger().warning(
+                    "rust inference reply lost type=%s", type(error).__name__
+                )
+                return {"status": "unknown"}
+        finally:
+            self._request_gate.release()
+        if data is None:
+            return None
+        body = data.get("body", {})
+        if data.get("ok"):
+            return {
+                "status": "completed",
+                "exit_code": body.get("exit_code"),
+                "stdout": body.get("stdout", ""),
+                "stderr": body.get("stderr_tail", ""),
+                "elapsed_ms": body.get("elapsed_ms"),
+            }
+        return {
+            "status": body.get("error", "error"),
+            "detail": body.get("detail", ""),
+            "elapsed_ms": body.get("elapsed_ms"),
+        }
+
+    def cancel_inference(self):
+        """Fire-and-forget kill of the in-flight job (the voice-stop path).
+
+        Deliberately bypasses _request_gate: run_inference may hold it for
+        the entire job duration, and a cancel must never queue behind the
+        job it is killing. The response frame is consumed and dropped by
+        whichever awaiter is active — request_ids are unique, so a stray
+        cancel ack can never be mistaken for another request's reply.
+        Returns True when the frame reached stdin.
+        """
+        if self.dead:
+            return False
+        try:
+            with self._send_lock:
+                self._process.request("cancel_inference", {})
+            return True
+        except Exception as error:
+            self._count_fault(error)
+            return False
 
     def ensure_obligation(self, obligation_dict, timeout=2.0):
         """Idempotent schedule: 'armed', 'already_armed', 'rejected', None."""
@@ -150,6 +226,7 @@ class RustCoreFeed:
         return "rejected"
 
     def close(self):
+        global _ACTIVE
         try:
             self._process.stop()
         except Exception as error:
@@ -161,6 +238,23 @@ class RustCoreFeed:
                 self._pid_path.unlink(missing_ok=True)
             except OSError:
                 pass
+        if _ACTIVE is self:
+            _ACTIVE = None
+
+
+_ACTIVE = None
+
+
+def active_feed():
+    """The live feed, or None. reasoning.py picks its path from this."""
+    return _ACTIVE
+
+
+def cancel_active_inference():
+    """Voice-stop hook: kill the supervisor's in-flight job, if any."""
+    feed = _ACTIVE
+    if feed is not None and feed.inference_relay:
+        feed.cancel_inference()
 
 
 def start_if_enabled(root=None, binary=None):
@@ -209,7 +303,11 @@ def start_if_enabled(root=None, binary=None):
     except OSError:
         get_runtime_logger().warning("rust core pid file write failed")
     get_runtime_logger().info("rust core shadow feed active")
-    return RustCoreFeed(process, pid_path)
+    global _ACTIVE
+    feed = RustCoreFeed(process, pid_path)
+    feed.inference_relay = bool(section.get("inference_relay"))
+    _ACTIVE = feed
+    return feed
 
 
 def ensure_review_reminder(feed, now=None):

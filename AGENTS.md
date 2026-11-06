@@ -142,6 +142,18 @@ Private session notes and editor settings are intentionally not included.
   run-once-on-recovery) via failure-isolated `feed.ensure_obligation`;
   re-registration answers typed `duplicate_obligation`, `ipc_disabled`
   is the tested rollback, and due runs still dispatch shadow-only.
+  `[rust_core] inference_relay` (default false) + `[inference]` give
+  the supervisor ownership of the `llama-completion.exe` lifecycle:
+  bounded argv/stdout/stderr, single-flight cap, `ops.inference.run`
+  policy intent journaled pre-spawn, `watch`-channel cancel, timeout
+  kill, shutdown drain — no orphaned child. `reasoning._dispatch`
+  relays argv minus argv[0] through `feed.run_inference` when the flag
+  is on; the identical local subprocess runs only when the request
+  provably never left Python (`None` reply); a lost reply is typed
+  `unknown`→TimeoutExpired and never re-dispatched. Voice-stop sends
+  fire-and-forget `cancel_inference` (bypasses the request gate —
+  it must not queue behind the job it kills). The journal stores
+  status/byte counts/exit codes only — never prompt or output text.
   Toolchain installed: `rustup` default
   `stable-x86_64-pc-windows-gnu` (1.99.1) plus WinLibs mingw `gcc` on PATH
   (`rusqlite/bundled` compiles SQLite from C — `cc` needs `gcc.exe`; no

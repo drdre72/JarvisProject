@@ -14,6 +14,7 @@ use crate::events::{
     BoundedEventQueue, Disposition, EventClass, EventEnvelope, EventSource, EventType, QueuedEvent,
 };
 use crate::health::ResourceSnapshot;
+use crate::inference::{run_job, JobCaps, JobOutcome, JobSpec};
 use crate::journal::{JournalError, JournalHandle};
 use crate::policy::{ActionRequest, Decision, PolicyEngine, Requester};
 use crate::scheduler::{
@@ -22,10 +23,12 @@ use crate::scheduler::{
 use crate::state::{CognitiveMachine, CognitiveState};
 use crate::transport::{FrameBody, InboundRequest, WireFrame};
 use serde_json::{json, Value};
+use std::collections::HashMap;
 use std::future::Future;
 use std::time::{Duration, Instant};
 use time::OffsetDateTime;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 pub struct Supervisor {
@@ -41,6 +44,13 @@ pub struct Supervisor {
     journal_failures: u32,
     /// Response frames back to the Python peer (Stage B IPC surface).
     outbound: mpsc::Sender<WireFrame>,
+    /// In-flight inference jobs: job_id -> (cancel sender, task handle).
+    /// Bounded by `inference.max_concurrent`; emptied on completion via the
+    /// `done` channel or cancelled on shutdown.
+    inflight: HashMap<String, (watch::Sender<bool>, JoinHandle<()>)>,
+    /// Job-completion drain, created when `run` starts so `new` keeps its
+    /// signature for tests that never open the request channel.
+    done_tx: Option<mpsc::Sender<String>>,
 }
 
 impl Supervisor {
@@ -65,6 +75,8 @@ impl Supervisor {
             policy: PolicyEngine::new(),
             journal_failures: 0,
             outbound,
+            inflight: HashMap::new(),
+            done_tx: None,
         }
     }
 
@@ -115,6 +127,8 @@ impl Supervisor {
         // by collect_due, not by tokio.
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut intake_open = true;
+        let (done_tx, mut done_rx) = mpsc::channel::<String>(16);
+        self.done_tx = Some(done_tx);
         info!(
             shadow = self.cfg.rust_core.shadow_mode,
             pending_obligations = self.scheduler.len(),
@@ -133,6 +147,11 @@ impl Supervisor {
                     }
                 },
                 Some(req) = requests.recv() => self.on_request(req).await,
+                maybe_done = done_rx.recv() => {
+                    if let Some(job_id) = maybe_done {
+                        self.inflight.remove(&job_id);
+                    }
+                }
             }
         }
         self.shutdown().await;
@@ -149,6 +168,8 @@ impl Supervisor {
         match req.op.as_str() {
             "schedule_obligation" => self.op_schedule_obligation(req).await,
             "cancel_obligation" => self.op_cancel_obligation(req).await,
+            "run_inference" => self.op_run_inference(req).await,
+            "cancel_inference" => self.op_cancel_inference(req).await,
             _ => {
                 self.respond(
                     req.request_id,
@@ -229,6 +250,183 @@ impl Supervisor {
             None => {
                 self.scheduler.cancel(&obligation_id);
                 self.respond(request_id, false, json!({"error": "journal_failed"}))
+                    .await;
+            }
+        }
+    }
+
+    /// Stage B: bounded child-process execution for one inference call.
+    /// Intent is journaled before spawn; the terminal outcome is journaled
+    /// before the response is sent. Prompt text and output never reach the
+    /// journal — status, exit codes, and byte counts only. The job runs in
+    /// its own task so a 45s generation never stalls the supervisor loop.
+    async fn op_run_inference(&mut self, req: InboundRequest) {
+        let request_id = req.request_id;
+        if !self.cfg.rust_core.inference_relay {
+            self.respond(request_id, false, json!({"error": "inference_disabled"}))
+                .await;
+            return;
+        }
+        let inf = &self.cfg.inference;
+        let caps = JobCaps {
+            max_argv_count: inf.max_argv_count,
+            max_argv_bytes: inf.max_argv_bytes,
+            max_stdout_bytes: inf.max_stdout_bytes,
+            max_stderr_bytes: inf.max_stderr_bytes,
+        };
+        let spec = match JobSpec::from_args(
+            &req.args,
+            &caps,
+            Duration::from_secs(inf.default_timeout_seconds),
+            Duration::from_secs(inf.max_timeout_seconds),
+        ) {
+            Ok(s) => s,
+            Err(e) => {
+                self.respond(
+                    request_id,
+                    false,
+                    json!({"error": "invalid_request", "detail": e.to_string()}),
+                )
+                .await;
+                return;
+            }
+        };
+        if self.inflight.len() >= inf.max_concurrent {
+            self.respond(request_id, false, json!({"error": "inference_busy"}))
+                .await;
+            return;
+        }
+        let now = OffsetDateTime::now_utc();
+        let intent_id = format!("intent-{}", spec.job_id);
+        let action_req = ActionRequest {
+            intent_id: intent_id.clone(),
+            requester: Requester::Worker,
+            verb: "run_inference".into(),
+            scope: "ops.inference.run".into(),
+            target: spec.job_id.clone(),
+            created_at_utc: now,
+            ttl_seconds: 120,
+            consequential: false,
+        };
+        match self.policy.evaluate(&action_req, now) {
+            Decision::Allow(_) => {}
+            Decision::Deny(denial) => {
+                let j = self.journal.clone();
+                let iid = intent_id.clone();
+                let reason = denial.to_string();
+                self.j(async move {
+                    j.record_intent(
+                        iid,
+                        "worker".into(),
+                        "run_inference".into(),
+                        "ops.inference.run".into(),
+                        "deny".into(),
+                        Some(reason),
+                    )
+                    .await
+                })
+                .await;
+                self.respond(
+                    request_id,
+                    false,
+                    json!({"error": "denied", "detail": denial.to_string()}),
+                )
+                .await;
+                return;
+            }
+            Decision::RequireConfirmation(_) => {
+                self.respond(request_id, false, json!({"error": "requires_confirmation"}))
+                    .await;
+                return;
+            }
+        }
+        let j = self.journal.clone();
+        let iid = intent_id;
+        self.j(async move {
+            j.record_intent(
+                iid,
+                "worker".into(),
+                "run_inference".into(),
+                "ops.inference.run".into(),
+                "allow".into(),
+                None,
+            )
+            .await
+        })
+        .await;
+
+        let Some(done) = self.done_tx.clone() else {
+            self.respond(request_id, false, json!({"error": "not_running"}))
+                .await;
+            return;
+        };
+        let (cancel_tx, cancel_rx) = watch::channel(false);
+        let binary = self.cfg.inference_binary();
+        let outbound = self.outbound.clone();
+        let journal = self.journal.clone();
+        let job_id = spec.job_id.clone();
+        let map_key = spec.job_id.clone();
+        let handle = tokio::spawn(async move {
+            let (outcome, elapsed_ms) = run_job(binary, spec, caps, cancel_rx).await;
+            let verified = !matches!(outcome, JobOutcome::SpawnFailed(_));
+            let detail = outcome_detail(&outcome, elapsed_ms);
+            let _ = journal
+                .record_result(
+                    format!("result-{job_id}"),
+                    format!("intent-{job_id}"),
+                    outcome.status_str().to_string(),
+                    verified,
+                    Some(detail),
+                )
+                .await;
+            let _ = journal
+                .upsert_worker("inference", outcome.status_str(), 0, None)
+                .await;
+            let (ok, body) = response_for_outcome(&job_id, outcome, elapsed_ms);
+            let frame = WireFrame::new(FrameBody::Response {
+                request_id,
+                ok,
+                body,
+            });
+            let _ = outbound.send(frame).await;
+            let _ = done.send(job_id).await;
+        });
+        self.inflight.insert(map_key, (cancel_tx, handle));
+    }
+
+    /// Cancel the in-flight job: `job_id` targets a specific one, or with a
+    /// single-flight cap the sole running job is implied. The job task's
+    /// own response still arrives later with status `cancelled`.
+    async fn op_cancel_inference(&mut self, req: InboundRequest) {
+        let request_id = req.request_id;
+        if !self.cfg.rust_core.inference_relay {
+            self.respond(request_id, false, json!({"error": "inference_disabled"}))
+                .await;
+            return;
+        }
+        let named = req
+            .args
+            .get("job_id")
+            .and_then(|v| v.as_str())
+            .map(str::to_string);
+        let job_id = match (named, self.inflight.len()) {
+            (Some(id), _) => Some(id),
+            (None, 1) => self.inflight.keys().next().cloned(),
+            (None, _) => None,
+        };
+        let hit = job_id.and_then(|id| {
+            self.inflight
+                .get(&id)
+                .map(|(tx, _)| (id.clone(), tx.clone()))
+        });
+        match hit {
+            Some((id, tx)) => {
+                let _ = tx.send(true);
+                self.respond(request_id, true, json!({"cancelled": id}))
+                    .await;
+            }
+            None => {
+                self.respond(request_id, false, json!({"error": "not_running"}))
                     .await;
             }
         }
@@ -641,6 +839,13 @@ impl Supervisor {
         let _ = self
             .machine
             .transition(CognitiveState::ShuttingDown, "shutdown_requested");
+        // Cancel in-flight inference jobs; kill_on_drop plus the explicit
+        // kill in run_job guarantees no child outlives the supervisor.
+        for (job_id, (tx, handle)) in self.inflight.drain() {
+            let _ = tx.send(true);
+            let _ = tokio::time::timeout(Duration::from_secs(2), handle).await;
+            info!(job_id = %job_id, "inference job cancelled at shutdown");
+        }
         let pending = self.queue.len();
         info!(pending_events = pending, "supervisor draining");
         while let Some(qe) = self.queue.pop() {
@@ -654,4 +859,58 @@ impl Supervisor {
         self.journal.shutdown().await;
         info!("supervisor stopped cleanly");
     }
+}
+
+/// Journal-safe detail for a job outcome: counts and codes, never content.
+fn outcome_detail(outcome: &JobOutcome, elapsed_ms: u128) -> String {
+    match outcome {
+        JobOutcome::Completed {
+            exit_code,
+            stdout,
+            stderr,
+        } => format!(
+            "exit={exit_code:?} stdout={}B stderr={}B elapsed={elapsed_ms}ms",
+            stdout.len(),
+            stderr.len()
+        ),
+        _ => format!("elapsed={elapsed_ms}ms"),
+    }
+}
+
+/// Map a terminal job to the response frame. `ok` follows whether the
+/// child ran to a real exit; terminal states carry the typed `error` the
+/// Python adapter maps onto its legacy exception contract.
+fn response_for_outcome(job_id: &str, outcome: JobOutcome, elapsed_ms: u128) -> (bool, Value) {
+    match outcome {
+        JobOutcome::Completed {
+            exit_code,
+            stdout,
+            stderr,
+        } => (
+            true,
+            json!({
+                "job_id": job_id,
+                "status": "completed",
+                "exit_code": exit_code,
+                "stdout": String::from_utf8_lossy(&stdout),
+                "stderr_tail": tail_lossy(&stderr, 2048),
+                "stdout_bytes": stdout.len(),
+                "elapsed_ms": elapsed_ms,
+            }),
+        ),
+        other => (
+            false,
+            json!({
+                "job_id": job_id,
+                "status": other.status_str(),
+                "error": other.status_str(),
+                "elapsed_ms": elapsed_ms,
+            }),
+        ),
+    }
+}
+
+fn tail_lossy(bytes: &[u8], keep: usize) -> String {
+    let start = bytes.len().saturating_sub(keep);
+    String::from_utf8_lossy(&bytes[start..]).into_owned()
 }

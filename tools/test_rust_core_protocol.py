@@ -336,6 +336,175 @@ class StageBWireTests(unittest.TestCase):
         self.assertEqual(row[1], "shadow_evaluated")
 
 
+class StageBInferenceTests(unittest.TestCase):
+    """Rust-owned worker lifecycle over the wire: spawn, timeout, cancel,
+    bounded output — python.exe stands in as the worker binary."""
+
+    binary = None
+
+    @classmethod
+    def setUpClass(cls):
+        cls.binary = _build_or_find_binary()
+        if cls.binary is None:
+            raise unittest.SkipTest("jarvis-core binary unavailable (cargo build it)")
+
+    def _spawn(self, tmp, inference_relay=True, inference_binary=None):
+        config = adapter.write_config(
+            Path(tmp) / "jarvis-core.toml",
+            Path(tmp) / "data",
+            enabled=True,
+            shadow_mode=True,
+            ipc_requests=True,
+            inference_relay=inference_relay,
+            inference_binary=inference_binary or sys.executable,
+        )
+        core = adapter.RustCoreProcess(
+            self.binary, config, data_dir=Path(tmp) / "data"
+        )
+        return core.start(), Path(tmp) / "data" / "operational-journal.db"
+
+    def _collect(self, core, request_ids, deadline_s=15.0):
+        """Await responses for several request_ids regardless of order."""
+        responses = {}
+        deadline = time.monotonic() + deadline_s
+        while len(responses) < len(request_ids):
+            frame = core.next_frame(timeout=deadline - time.monotonic())
+            data = frame["body"]["data"]
+            if data.get("request_id") in request_ids:
+                responses[data["request_id"]] = data
+        return responses
+
+    def test_inference_disabled_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp, inference_relay=False)
+            try:
+                rid = core.request(
+                    "run_inference", {"argv": ["-c", "print(1)"]}
+                )
+                resp = core.await_response(rid, timeout=5.0)
+            finally:
+                core.stop()
+        self.assertFalse(resp["ok"])
+        self.assertEqual(resp["body"]["error"], "inference_disabled")
+
+    def test_run_inference_completed_with_output(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, journal = self._spawn(tmp)
+            try:
+                rid = core.request(
+                    "run_inference",
+                    {"argv": ["-c", "print('hello jarvis')"], "timeout_ms": 15000},
+                )
+                resp = core.await_response(rid, timeout=20.0)
+            finally:
+                core.stop()
+            body = resp["body"]
+            self.assertTrue(resp["ok"], body)
+            self.assertEqual(body["status"], "completed")
+            self.assertEqual(body["exit_code"], 0)
+            self.assertIn("hello jarvis", body["stdout"])
+
+            conn = sqlite3.connect(str(journal))
+            try:
+                intent = conn.execute(
+                    "SELECT requester, verb, scope, decision FROM action_intents"
+                    " WHERE verb='run_inference'"
+                ).fetchone()
+                result = conn.execute(
+                    "SELECT outcome, verified FROM action_results"
+                ).fetchone()
+                worker = conn.execute(
+                    "SELECT worker_name, state FROM worker_status"
+                ).fetchone()
+            finally:
+                conn.close()
+            self.assertEqual(
+                intent, ("worker", "run_inference", "ops.inference.run", "allow")
+            )
+            self.assertEqual(result, ("completed", 1))
+            self.assertEqual(worker, ("inference", "completed"))
+
+    def test_run_inference_timeout_kills_child(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp)
+            try:
+                rid = core.request(
+                    "run_inference",
+                    {
+                        "argv": ["-c", "import time; time.sleep(60)"],
+                        "timeout_ms": 500,
+                    },
+                )
+                started = time.monotonic()
+                resp = core.await_response(rid, timeout=15.0)
+                elapsed = time.monotonic() - started
+            finally:
+                core.stop()
+            self.assertFalse(resp["ok"])
+            self.assertEqual(resp["body"]["status"], "timeout")
+            self.assertLess(elapsed, 10, "supervisor-side kill was not prompt")
+
+    def test_cancel_inference_kills_running_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp)
+            try:
+                run_rid = core.request(
+                    "run_inference",
+                    {
+                        "argv": ["-c", "import time; time.sleep(60)"],
+                        "timeout_ms": 60000,
+                        "job_id": "job-cancel-me",
+                    },
+                )
+                time.sleep(0.7)  # let the child actually spawn
+                cancel_rid = core.request("cancel_inference", {})
+                responses = self._collect(core, {run_rid, cancel_rid})
+            finally:
+                core.stop()
+            cancel = responses[cancel_rid]
+            self.assertTrue(cancel["ok"], cancel)
+            self.assertEqual(cancel["body"]["cancelled"], "job-cancel-me")
+            run = responses[run_rid]
+            self.assertEqual(run["body"]["status"], "cancelled")
+
+    def test_spawn_failed_is_typed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(
+                tmp, inference_binary="definitely-not-real-xyz.exe"
+            )
+            try:
+                rid = core.request("run_inference", {"argv": ["x"]})
+                resp = core.await_response(rid, timeout=10.0)
+            finally:
+                core.stop()
+            self.assertFalse(resp["ok"])
+            self.assertEqual(resp["body"]["status"], "spawn_failed")
+
+    def test_single_flight_cap_rejects_second_job(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            core, _ = self._spawn(tmp)
+            try:
+                run_rid = core.request(
+                    "run_inference",
+                    {
+                        "argv": ["-c", "import time; time.sleep(60)"],
+                        "timeout_ms": 60000,
+                        "job_id": "job-holds-gate",
+                    },
+                )
+                time.sleep(0.5)
+                second = core.await_response(
+                    core.request("run_inference", {"argv": ["-c", "print(1)"]}),
+                    timeout=10.0,
+                )
+                cancel_rid = core.request("cancel_inference", {})
+                self._collect(core, {run_rid, cancel_rid})
+            finally:
+                core.stop()
+            self.assertFalse(second["ok"])
+            self.assertEqual(second["body"]["error"], "inference_busy")
+
+
 class StageAFeedTests(unittest.TestCase):
     """The comparison evidence: real turn events journaled by the shadow."""
 

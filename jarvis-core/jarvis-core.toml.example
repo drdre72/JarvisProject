@@ -18,6 +18,26 @@ per_source_burst = 32
 # Stage B gate. false = every request frame is answered `ipc_disabled`;
 # true = the limited IPC surface (obligation scheduling) accepts work.
 ipc_requests = false
+# Stage B gate for the inference-lifecycle function specifically.
+# false = `run_inference`/`cancel_inference` are answered
+# `inference_disabled` and Python keeps its own subprocess path — the
+# rollback. true = the supervisor spawns/kills the configured binary.
+inference_relay = false
+
+[inference]
+# The binary the supervisor may spawn; workers send argv only.
+binary = "bin/llama-completion.exe"
+default_timeout_seconds = 120
+# Hard ceiling on any request-side timeout.
+max_timeout_seconds = 300
+# Single-flight matches the serialized turn pipeline today.
+max_concurrent = 1
+max_argv_count = 64
+# The prompt travels inside argv; this caps its total size on the wire.
+max_argv_bytes = 49152
+# Captured output caps; over-cap kills the child as output_overflow.
+max_stdout_bytes = 32768
+max_stderr_bytes = 8192
 
 [scheduler]
 tick_seconds = 1

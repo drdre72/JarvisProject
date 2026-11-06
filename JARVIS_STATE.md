@@ -162,8 +162,21 @@
    accepted pairs, shadow invariant held, zero transcript content. The
    test also exposed that cleanup() was never wired — now fixed via
    page.on_disconnect + main.py finally + feed.pid stale-supervisor
-   reaping. Not yet exercised against the live Python worker or OS
-   sleep/restart.
+   reaping. Second Stage B surface wired: `[rust_core] inference_relay`
+   (default false) + `[inference]` section give the supervisor ownership
+   of the `llama-completion.exe` lifecycle — bounded argv/output,
+   single-flight cap, policy-gated `ops.inference.run` intent
+   journaled before spawn, watch-channel cancel, timeout kill, and
+   shutdown drain guarantee no orphaned child. Python `reasoning.py`
+   relays argv when the flag is on and falls back to the identical
+   local subprocess only when the request provably never left Python;
+   a lost reply maps to `unknown`→TimeoutExpired and is never
+   re-dispatched. `stop_voice_recognition` sends fire-and-forget
+   `cancel_inference` (bypasses the request gate so it cannot queue
+   behind the job it kills). Journal records status/bytes/exit codes
+   only — never prompt or output text. Live wire tests use python.exe
+   as the worker: completed/timeout/cancel/spawn_failed/busy/disabled
+   all verified; real llama.cpp child not yet exercised live.
 
 ## Rules of interpretation
 

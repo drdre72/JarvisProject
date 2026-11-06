@@ -3,11 +3,13 @@ the jarvis_app turn wiring. No binary, vault, or transcript is touched.
 """
 
 import json
+import subprocess
 import sys
 import tempfile
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -231,6 +233,183 @@ class ObligationRequestTests(unittest.TestCase):
         self.assertNotIn("text", json.dumps(args).lower())
 
 
+class InferenceRelayTests(unittest.TestCase):
+    """run_inference: typed outcomes, and the never-sent fallback boundary."""
+
+    def test_completed_maps_output(self):
+        proc = RequestingProcess(
+            response={
+                "ok": True,
+                "body": {
+                    "job_id": "j1",
+                    "status": "completed",
+                    "exit_code": 0,
+                    "stdout": "hello",
+                    "stderr_tail": "",
+                    "stdout_bytes": 5,
+                    "elapsed_ms": 12,
+                },
+            }
+        )
+        feed = rust_core_feed.RustCoreFeed(proc)
+        reply = feed.run_inference(["-p", "hi"], timeout_s=5)
+        self.assertEqual(reply["status"], "completed")
+        self.assertEqual(reply["exit_code"], 0)
+        self.assertEqual(reply["stdout"], "hello")
+        op, args = proc.requests[0]
+        self.assertEqual(op, "run_inference")
+        self.assertEqual(args["argv"], ["-p", "hi"])
+        self.assertEqual(args["timeout_ms"], 5000)
+
+    def test_typed_failure_maps_status(self):
+        proc = RequestingProcess(
+            response={"ok": False, "body": {"error": "timeout", "elapsed_ms": 300}}
+        )
+        feed = rust_core_feed.RustCoreFeed(proc)
+        self.assertEqual(feed.run_inference(["x"], 5)["status"], "timeout")
+
+    def test_send_failure_is_none_and_fault_counted(self):
+        proc = RequestingProcess()
+        proc.request = Mock(side_effect=RuntimeError("broken"))
+        feed = rust_core_feed.RustCoreFeed(proc)
+        self.assertIsNone(feed.run_inference(["x"], 5))
+        self.assertEqual(feed.emit_errors, 1)
+
+    def test_lost_reply_is_unknown_not_retried(self):
+        proc = RequestingProcess()
+        proc.await_response = Mock(side_effect=TimeoutError("gone"))
+        feed = rust_core_feed.RustCoreFeed(proc)
+        self.assertEqual(feed.run_inference(["x"], 5)["status"], "unknown")
+
+    def test_busy_gate_is_typed_not_fallback(self):
+        proc = RequestingProcess()
+        feed = rust_core_feed.RustCoreFeed(proc)
+        feed._request_gate.acquire()
+        try:
+            reply = feed.run_inference(["x"], timeout_s=0.01)
+        finally:
+            feed._request_gate.release()
+        self.assertEqual(reply["status"], "busy")
+
+    def test_cancel_inference_is_fire_and_forget(self):
+        # Sends under _send_lock only — must NOT queue behind an in-flight
+        # run_inference holding _request_gate, and never awaits a reply.
+        proc = RequestingProcess()
+        proc.await_response = Mock(
+            side_effect=AssertionError("cancel must not await")
+        )
+        feed = rust_core_feed.RustCoreFeed(proc)
+        feed._request_gate.acquire()  # a job is holding the gate
+        try:
+            self.assertTrue(feed.cancel_inference())
+        finally:
+            feed._request_gate.release()
+        self.assertEqual(proc.requests, [("cancel_inference", {})])
+        proc.await_response.assert_not_called()
+
+    def test_cancel_inference_on_dead_feed_is_false(self):
+        feed = rust_core_feed.RustCoreFeed(RequestingProcess())
+        feed.dead = True
+        self.assertFalse(feed.cancel_inference())
+
+    def test_cancel_active_inference_gating(self):
+        feed = Mock(spec=["cancel_inference", "inference_relay"])
+        feed.inference_relay = True
+        with patch.object(rust_core_feed, "_ACTIVE", feed):
+            rust_core_feed.cancel_active_inference()
+        feed.cancel_inference.assert_called_once_with()
+        feed.inference_relay = False
+        feed.cancel_inference.reset_mock()
+        with patch.object(rust_core_feed, "_ACTIVE", feed):
+            rust_core_feed.cancel_active_inference()
+        feed.cancel_inference.assert_not_called()
+        with patch.object(rust_core_feed, "_ACTIVE", None):
+            rust_core_feed.cancel_active_inference()  # no crash, no call
+
+    def test_active_feed_lifecycle_and_flag_parse(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            adapter.write_config(
+                Path(tmp) / "jarvis-core.toml", tmp, enabled=True,
+                inference_relay=True,
+            )
+            with patch.object(
+                rust_core_feed.adapter, "RustCoreProcess", return_value=FakeProcess()
+            ):
+                feed = rust_core_feed.start_if_enabled(root=tmp, binary="x/bin")
+            try:
+                self.assertIs(rust_core_feed.active_feed(), feed)
+                self.assertTrue(feed.inference_relay)
+            finally:
+                feed.close()
+            self.assertIsNone(rust_core_feed.active_feed())
+
+
+class ReasoningDispatchTests(unittest.TestCase):
+    """reasoning._dispatch: relay when flagged, legacy otherwise."""
+
+    def _feed(self, reply):
+        feed = Mock(spec=["run_inference", "inference_relay"])
+        feed.inference_relay = True
+        feed.run_inference.return_value = reply
+        return feed
+
+    def test_relay_completed_returns_namespace(self):
+        import reasoning
+
+        feed = self._feed(
+            {"status": "completed", "exit_code": 0, "stdout": "hi", "stderr": ""}
+        )
+        with patch.object(rust_core_feed, "active_feed", return_value=feed):
+            result = reasoning._dispatch(["bin", "-p", "hi"], 30)
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "hi")
+        feed.run_inference.assert_called_once_with(["-p", "hi"], 30)
+
+    def test_relay_timeout_raises_timeoutexpired(self):
+        import reasoning
+
+        feed = self._feed({"status": "timeout"})
+        with patch.object(rust_core_feed, "active_feed", return_value=feed):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                reasoning._dispatch(["bin", "-p", "hi"], 30)
+
+    def test_relay_unknown_never_falls_back(self):
+        import reasoning
+
+        feed = self._feed({"status": "unknown"})
+        with patch.object(rust_core_feed, "active_feed", return_value=feed):
+            with self.assertRaises(subprocess.TimeoutExpired):
+                reasoning._dispatch(["bin", "-p", "hi"], 30)
+
+    def test_never_sent_falls_back_to_local(self):
+        import reasoning
+
+        feed = self._feed(None)
+        completed = SimpleNamespace(returncode=0, stdout="local", stderr="")
+        with patch.object(rust_core_feed, "active_feed", return_value=feed):
+            with patch.object(reasoning.subprocess, "run", return_value=completed) as run:
+                result = reasoning._dispatch(["bin", "-p", "hi"], 30)
+        run.assert_called_once()
+        self.assertEqual(result.stdout, "local")
+
+    def test_no_feed_uses_local(self):
+        import reasoning
+
+        completed = SimpleNamespace(returncode=0, stdout="local", stderr="")
+        with patch.object(rust_core_feed, "active_feed", return_value=None):
+            with patch.object(reasoning.subprocess, "run", return_value=completed) as run:
+                reasoning._dispatch(["bin"], 30)
+        run.assert_called_once()
+
+    def test_relay_cancelled_is_runtime_error(self):
+        import reasoning
+
+        feed = self._feed({"status": "cancelled"})
+        with patch.object(rust_core_feed, "active_feed", return_value=feed):
+            with self.assertRaises(RuntimeError):
+                reasoning._dispatch(["bin"], 30)
+
+
 class JarvisAppWiringTests(unittest.TestCase):
     def _app(self, feed):
         import jarvis_app
@@ -306,6 +485,21 @@ class JarvisAppWiringTests(unittest.TestCase):
         app.cleanup()
         app.cleanup()  # disconnect + exit both call it; feed closes once
         feed.close.assert_called_once()
+
+    def test_stop_voice_cancels_active_inference(self):
+        import jarvis_app
+
+        app = self._app(Mock(spec=["close"]))
+        app.is_listening = True
+        app._voice_generation = 3
+        with patch.object(jarvis_app, "speak"):
+            with patch.object(
+                rust_core_feed, "cancel_active_inference"
+            ) as cancel:
+                app.stop_voice_recognition()
+        cancel.assert_called_once_with()
+        self.assertFalse(app.is_listening)
+        self.assertEqual(app._voice_generation, 4)
 
     def test_register_obligations_delegates_reminder(self):
         import jarvis_app

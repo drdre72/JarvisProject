@@ -875,6 +875,9 @@ class JarvisApp:
         """Stop voice recognition"""
         self.is_listening = False
         self._voice_generation += 1
+        # Stale replies were already discarded by the generation check;
+        # with the relay on, the supervisor also kills the child process.
+        rust_core_feed.cancel_active_inference()
         self.add_chat_message("Jarvis", "Voice recognition deactivated, sir.", True)
         speak("Voice recognition deactivated.")
 

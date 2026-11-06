@@ -205,6 +205,14 @@ fn default_rules() -> HashMap<String, ScopeRule> {
         },
     );
     rules.insert(
+        "ops.inference.run".to_string(),
+        ScopeRule {
+            allowed_requesters: &[Requester::Worker, Requester::User],
+            model_may_propose: false,
+            action_ttl: Duration::seconds(300),
+        },
+    );
+    rules.insert(
         "ops.worker.restart".to_string(),
         ScopeRule {
             allowed_requesters: &[Requester::Scheduler, Requester::User],

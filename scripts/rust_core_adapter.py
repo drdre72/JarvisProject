@@ -270,6 +270,8 @@ def write_config(
     max_payload_bytes=DEFAULT_MAX_PAYLOAD_BYTES,
     per_source_burst=32,
     ipc_requests=False,
+    inference_relay=False,
+    inference_binary=None,
     scheduler_tick_seconds=1,
     max_due_per_tick=8,
     heartbeat_timeout_seconds=30,
@@ -279,6 +281,10 @@ def write_config(
 ):
     """Write a jarvis-core.toml. Mirrors jarvis-core/jarvis-core.toml.example."""
     data_dir_toml = str(data_dir).replace("\\", "/")
+    inference = ""
+    if inference_binary is not None:
+        binary_toml = str(inference_binary).replace("\\", "/")
+        inference = f'\n[inference]\nbinary = "{binary_toml}"\n'
     text = f"""[rust_core]
 enabled = {str(enabled).lower()}
 shadow_mode = {str(shadow_mode).lower()}
@@ -288,7 +294,8 @@ dedup_window_seconds = {dedup_window_seconds}
 max_payload_bytes = {max_payload_bytes}
 per_source_burst = {per_source_burst}
 ipc_requests = {str(ipc_requests).lower()}
-
+inference_relay = {str(inference_relay).lower()}
+{inference}
 [scheduler]
 tick_seconds = {scheduler_tick_seconds}
 max_due_per_tick = {max_due_per_tick}
