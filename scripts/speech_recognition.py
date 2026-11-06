@@ -5,6 +5,7 @@ Replaces Vosk with faster-whisper Python library for better Windows compatibilit
 
 import os
 import tempfile
+import threading
 import wave
 import time
 from collections import deque
@@ -61,6 +62,9 @@ class WhisperSTT:
 
         # Initialize faster-whisper model
         self.model = None
+        # Serializes model.transcribe calls: the ambient address spotter and
+        # the voice-turn path share this engine.
+        self._transcribe_lock = threading.Lock()
 
         # Audio settings
         self.sample_rate = 16000
@@ -112,11 +116,12 @@ class WhisperSTT:
 
         try:
             # Transcribe using faster-whisper
-            segments, info = self.model.transcribe(
-                str(audio_file_path),
-                language=self.language,
-                beam_size=5
-            )
+            with self._transcribe_lock:
+                segments, info = self.model.transcribe(
+                    str(audio_file_path),
+                    language=self.language,
+                    beam_size=5
+                )
 
             # Combine all segments into single text
             transcription_parts = []
@@ -130,6 +135,39 @@ class WhisperSTT:
         except Exception as e:
             print(f"[WhisperSTT] Transcription error: {e}")
             self.last_transcription_status = "failed"
+            return ""
+
+    def transcribe_pcm16(self, pcm_bytes, beam_size=1):
+        """
+        Transcribe in-memory PCM16 mono audio without touching disk.
+
+        Used by the ambient address spotter; does not update the voice-turn
+        diagnostic fields (last_capture / last_transcription_status).
+
+        Args:
+            pcm_bytes: raw little-endian int16 samples at self.sample_rate.
+            beam_size: keep small — spotting latency matters more than
+                transcription fidelity.
+
+        Returns:
+            Transcribed text string ("" on failure or silence).
+        """
+        if not self.model:
+            return ""
+        try:
+            samples = np.frombuffer(pcm_bytes, dtype=np.int16)
+            if not samples.size:
+                return ""
+            audio = samples.astype(np.float32) / 32768.0
+            with self._transcribe_lock:
+                segments, _info = self.model.transcribe(
+                    audio,
+                    language=self.language,
+                    beam_size=beam_size,
+                )
+            return " ".join(seg.text.strip() for seg in segments).strip()
+        except Exception as e:
+            print(f"[WhisperSTT] PCM transcription error: {e}")
             return ""
 
     def listen_and_transcribe(self, duration=5, silence_threshold=25, max_speech_seconds=12):

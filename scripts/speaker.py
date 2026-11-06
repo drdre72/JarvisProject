@@ -6,6 +6,22 @@ import pygame
 import pyttsx3
 import threading
 
+# Encoded rule: JARVIS never says his own name aloud — he refers to
+# himself only as "Just a Rather Very Intelligent System". Then the word
+# "jarvis" is a channel his own output can never occupy: any heard
+# "jarvis" is provably a human addressing him, even inside audio that
+# overlaps his own playback. Applied inside speak() so no call site can
+# regress; on-screen text keeps the name — only the acoustic channel is
+# constrained.
+_SELF_REFERENCE = "Just a Rather Very Intelligent System"
+_NAME_PATTERN = re.compile(r"\bjarvis\b", re.IGNORECASE)
+
+
+def sanitize_for_speech(text: str) -> str:
+    """Rewrite the wake word out of any utterance before it reaches the
+    audio channel."""
+    return _NAME_PATTERN.sub(_SELF_REFERENCE, text)
+
 # Global lock to prevent multiple TTS from playing simultaneously
 _tts_lock = threading.Lock()
 
@@ -25,6 +41,26 @@ def _mark_playback_end():
     global _last_playback_end
     _last_playback_end = time.monotonic()
     _playback_active.clear()
+
+
+# Live engine reference so a barge-in interrupt can cut playing speech.
+_active_engine = None
+
+
+def stop_speaking():
+    """Interrupt in-flight speech — SAPI engine or a playing soundboard
+    file (best-effort; safe when idle)."""
+    engine = _active_engine
+    if engine is not None:
+        try:
+            engine.stop()
+        except Exception:
+            pass
+    try:
+        if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+            pygame.mixer.music.stop()
+    except Exception:
+        pass
 
 
 def playback_state():
@@ -48,8 +84,10 @@ def speak(text: str):
     """
     Speaks the given text using a local audio file or offline Windows TTS.
     """
+    global _active_engine
     if not text:
         return
+    text = sanitize_for_speech(text)
 
     # Use lock to prevent multiple TTS from playing simultaneously
     with _tts_lock:
@@ -81,8 +119,12 @@ def speak(text: str):
             print(f"[Speaker] No local file found for '{text}'. Using system TTS.")
             try:
                 engine = pyttsx3.init()
-                engine.say(text)
-                engine.runAndWait()
+                _active_engine = engine
+                try:
+                    engine.say(text)
+                    engine.runAndWait()
+                finally:
+                    _active_engine = None
             except Exception as e:
                 print(f"[Speaker] TTS Error: {e}")
         finally:

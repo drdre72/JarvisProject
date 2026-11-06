@@ -29,17 +29,24 @@ from semantic_intent import INTENT_SCHEMA, parse_hypothesis, fulfill
 from runtime_log import get_runtime_logger
 import rust_core_feed
 import ambient_listener
+import address_spotter
 
 _whisper_stt = None
 
 
+def _get_whisper_engine():
+    """The shared WhisperSTT — voice turns and the ambient address
+    spotter both serialize on its transcribe lock."""
+    global _whisper_stt
+    if _whisper_stt is None:
+        _whisper_stt = WhisperSTT()
+    return _whisper_stt
+
+
 def listen_and_transcribe(duration=5):
     """Wrapper function for speech recognition."""
-    global _whisper_stt
     try:
-        if _whisper_stt is None:
-            _whisper_stt = WhisperSTT()
-        return _whisper_stt.listen_and_transcribe(duration=duration)
+        return _get_whisper_engine().listen_and_transcribe(duration=duration)
     except Exception as e:
         print(f"[WhisperSTT] Error: {e}")
         return ""
@@ -87,8 +94,13 @@ class JarvisApp:
         # with deterministic playback attribution — audio overlapping our
         # own TTS is suppressed and can never become a command. Suspended
         # while the voice loop runs its own captures (same coverage, no
-        # dual-stream driver risk). Segments are metrics only; judging
-        # ambient speech is a separate gate that is not built yet.
+        # dual-stream driver risk). Heard (non-suppressed) segments go to
+        # the address spotter, which transcribes them solely to look for
+        # the wake word; only a detected remainder leaves the spotter.
+        self._spotter = address_spotter.AddressSpotter(
+            _get_whisper_engine, self._on_ambient_address
+        )
+        self._spotter.start()
         self.ambient = self._start_ambient_listener()
 
         # Initialize audio and system monitoring
@@ -913,8 +925,9 @@ class JarvisApp:
             self.ambient = ambient.start()
 
     def _on_ambient_segment(self, seg):
-        # Metrics only — ambient speech is heard, not judged. Nothing is
-        # transcribed, dispatched, or persisted from this layer yet.
+        # Metrics plus the address gate: heard segments are offered to the
+        # spotter (depth-1 drop if busy); suppressed segments never leave
+        # the metrics path. Suppressed audio is never transcribed.
         get_runtime_logger().info(
             "ambient segment seconds=%.2f rms=%.1f clipped=%.4f overlap=%.2f %s",
             seg.seconds,
@@ -923,6 +936,36 @@ class JarvisApp:
             seg.playback_overlap,
             "suppressed=echo" if seg.suppressed else "heard",
         )
+        if not seg.suppressed:
+            spotter = getattr(self, "_spotter", None)
+            if spotter is not None:
+                spotter.submit(seg)
+
+    def _on_ambient_address(self, seg, remainder):
+        # Runs on the spotter thread — hop off before touching UI/voice
+        # state so a slow engage never stalls the spotting worker.
+        threading.Thread(
+            target=self._engage_from_ambient, args=(remainder,), daemon=True
+        ).start()
+
+    def _engage_from_ambient(self, remainder):
+        """A spotted 'jarvis' is a remote mic-button press: the same
+        engage path, then any words after the wake word dispatch as the
+        first turn."""
+        if getattr(self, "_cleaned_up", False) or self.is_listening:
+            return
+        self.start_voice_recognition()
+        if self.voice_button is not None:
+            self.voice_button.icon = "mic"
+            self.voice_button.bgcolor = ORANGE
+            self.voice_button.color = WHITE
+        if remainder:
+            self.add_chat_message("User", remainder)
+        self.page.update()
+        if remainder:
+            self.process_user_command(
+                remainder, voice_generation=self._voice_generation
+            )
 
     def stop_voice_recognition(self):
         """Stop voice recognition"""
@@ -1039,6 +1082,9 @@ class JarvisApp:
         self.is_listening = False
         self._voice_generation = getattr(self, "_voice_generation", 0) + 1
         self._ambient_suspend()
+        spotter = getattr(self, "_spotter", None)
+        if spotter is not None:
+            spotter.stop()
         feed = getattr(self, "rust_feed", None)
         if feed is not None:
             feed.close()

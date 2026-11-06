@@ -89,12 +89,23 @@ Private session notes and editor settings are intentionally not included.
   >50% overlap, plus a 0.6s tail) are suppressed — Jarvis cannot hear
   himself as the user. This is state attribution, not acoustic echo
   cancellation: user speech starting during playback is also suppressed
-  (real barge-in needs a separate interrupt mechanism). Segments are
-  metrics-only — never transcribed, dispatched, or persisted; ambient
-  judgment ("was this addressed to Jarvis") is a separate unbuilt gate.
-  The voice loop suspends ambient while it owns the mic; resume is
-  idempotent and restarts a dead listener. `tools/echo_probe.py` is the
-  live self-hearing check.
+  (real barge-in needs a separate interrupt mechanism). The voice loop
+  suspends ambient while it owns the mic; resume is idempotent and
+  restarts a dead listener. `tools/echo_probe.py` is the live
+  self-hearing check.
+- Wake word: encoded rule — `speaker.sanitize_for_speech` rewrites
+  "jarvis" out of every utterance (he self-refers only as "Just a
+  Rather Very Intelligent System"), so a heard "jarvis" is provably
+  human even inside echo-tagged audio. Heard segments go to
+  `scripts/address_spotter.py` (depth-1 drop policy, transcribe only to
+  find the wake word, transcripts discarded; suppressed audio is never
+  transcribed). A spotted "jarvis" engages the normal voice loop like a
+  remote mic-button press and any words after the name dispatch as the
+  first turn. Ambient audio still never becomes memory or commands
+  except through that addressed-turn path.
+- Speech interrupt plumbing exists (`speaker.stop_speaking` — SAPI
+  engine stop + pygame music stop) but no trigger calls it yet;
+  word-level barge-in during playback is deliberately deferred.
 - The Markdown vault is part of Jarvis's local identity and memory; Obsidian
   is an optional viewer/editor, not an external vault-management tool.
   `Jarvis/Core/Purpose.md` is an optional user-authored, manually approved

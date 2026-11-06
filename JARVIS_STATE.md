@@ -184,8 +184,23 @@
    (answers were too fast to interrupt). Ambient hearing added:
    persistent segmented capture with deterministic playback
    attribution — segments overlapping TTS output are suppressed so
-   Jarvis cannot hear himself; metrics-only, ambient judgment and
-   voice barge-in remain unbuilt. Live echo check: tools/echo_probe.py.
+   Jarvis cannot hear himself. Live echo check: tools/echo_probe.py.
+   First ambient judgment slice added 2026-11-06: an encoded rule
+   (`speaker.sanitize_for_speech`) rewrites "jarvis" out of every
+   utterance — he refers to himself only as "Just a Rather Very
+   Intelligent System", so the wake word is a channel his own output
+   can never occupy and any heard "jarvis" is provably human.
+   Heard (non-suppressed) segments go to `scripts/address_spotter.py`
+   — one worker, depth-1 drop policy — which transcribes them solely
+   to find the wake word; transcripts are discarded, suppressed audio
+   is never transcribed. A spotted "jarvis" engages the ordinary
+   voice loop (a remote mic-button press) and any words after the
+   name dispatch as the first turn through the normal typed pipeline.
+   `speaker.stop_speaking()` plumbing exists (SAPI engine stop +
+   pygame music stop) for the still-unbuilt playback-window
+   interrupt; saying "jarvis" *while he speaks* stays echo-suppressed
+   by design (word-level barge-in needs the suppressed-segment
+   spotting pass or AEC — deliberately deferred).
 
 ## Rules of interpretation
 
