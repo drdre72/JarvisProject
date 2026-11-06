@@ -200,7 +200,12 @@
    pygame music stop) for the still-unbuilt playback-window
    interrupt; saying "jarvis" *while he speaks* stays echo-suppressed
    by design (word-level barge-in needs the suppressed-segment
-   spotting pass or AEC — deliberately deferred).
+   spotting pass or AEC — deliberately deferred). Live-verified
+   2026-11-06: a lone "Jarvis" while dormant produced
+   'ambient address detected' in runtime.log and engaged the voice
+   loop; ~12 heard room-noise segments in the same session caused
+   zero false summons. Wake-word + remainder dispatch in one
+   utterance still untested live.
 
 ## Rules of interpretation
 
