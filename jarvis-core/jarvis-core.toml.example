@@ -37,7 +37,7 @@ max_argv_count = 64
 max_argv_bytes = 49152
 # Captured output caps; over-cap kills the child as output_overflow.
 max_stdout_bytes = 32768
-max_stderr_bytes = 8192
+max_stderr_bytes = 262144
 
 [scheduler]
 tick_seconds = 1
