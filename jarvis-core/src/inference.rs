@@ -14,7 +14,9 @@ use tokio::io::AsyncReadExt;
 use tokio::process::Command;
 use tokio::sync::watch;
 
-/// Caps applied to one job — mirrors [inference] config.
+/// Caps applied to one job — mirrors [inference] config. `max_stderr_bytes`
+/// is a retained-tail bound, not a kill cap: stderr is worker diagnostics,
+/// not payload.
 #[derive(Debug, Clone)]
 pub struct JobCaps {
     pub max_argv_count: usize,
@@ -115,7 +117,8 @@ pub enum JobOutcome {
     Timeout,
     Cancelled,
     SpawnFailed(String),
-    /// A stream exceeded its cap; the child was killed.
+    /// stdout exceeded its cap; the child was killed. (stderr is drained
+    /// with a bounded tail — it can never overflow-kill.)
     OutputOverflow,
 }
 
@@ -153,6 +156,31 @@ where
     }
 }
 
+/// Read a diagnostic stream to EOF keeping only the last `keep` bytes.
+/// Never overflows: a verbose worker (llama.cpp -v emits ~0.5 MiB of
+/// tensor/backend logs) must not be killed for being chatty, and a dead
+/// pipe must not wedge the reader.
+async fn drain_tail<R>(mut reader: R, keep: usize) -> Vec<u8>
+where
+    R: tokio::io::AsyncRead + Unpin,
+{
+    let mut buf = Vec::new();
+    let mut chunk = [0u8; 8192];
+    loop {
+        match reader.read(&mut chunk).await {
+            Ok(0) => break,
+            Ok(n) => {
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > keep {
+                    buf.drain(..buf.len() - keep);
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    buf
+}
+
 /// Run one child to completion, timeout, cancel, or overflow.
 /// `kill_on_drop` plus an explicit kill makes sure the supervisor never
 /// leaves an inference orphan it still owns.
@@ -182,24 +210,24 @@ pub async fn run_job(
     let stdout = child.stdout.take().expect("stdout piped");
     let stderr = child.stderr.take().expect("stderr piped");
     let mut out_task = tokio::spawn(drain_capped(stdout, caps.max_stdout_bytes));
-    let mut err_task = tokio::spawn(drain_capped(stderr, caps.max_stderr_bytes));
+    let mut err_task = tokio::spawn(drain_tail(stderr, caps.max_stderr_bytes as usize));
 
     let outcome = tokio::select! {
         status = child.wait() => {
             // &mut keeps the handles owned so abort() stays reachable below.
             let out = (&mut out_task).await.unwrap_or(Ok(Vec::new()));
-            let err = (&mut err_task).await.unwrap_or(Ok(Vec::new()));
-            match (status, out, err) {
-                (_, Err(()), _) | (_, _, Err(())) => {
+            let err = (&mut err_task).await.unwrap_or_default();
+            match (status, out) {
+                (_, Err(())) => {
                     let _ = child.kill().await;
                     JobOutcome::OutputOverflow
                 }
-                (Ok(exit), Ok(so), Ok(se)) => JobOutcome::Completed {
+                (Ok(exit), Ok(so)) => JobOutcome::Completed {
                     exit_code: exit.code(),
                     stdout: so,
-                    stderr: se,
+                    stderr: err,
                 },
-                (Err(e), _, _) => JobOutcome::SpawnFailed(e.to_string()),
+                (Err(e), _) => JobOutcome::SpawnFailed(e.to_string()),
             }
         }
         _ = tokio::time::sleep(spec.timeout) => {
@@ -388,5 +416,42 @@ mod tests {
         };
         let (outcome, _ms) = run_job(bin, spec, caps(), rx).await;
         assert!(matches!(outcome, JobOutcome::OutputOverflow));
+    }
+
+    #[tokio::test]
+    async fn chatty_stderr_is_drained_not_killed() {
+        // Regression for the live relay failure: llama.cpp -v emits ~0.5
+        // MiB of stderr; a diagnostic stream must never overflow-kill.
+        let (bin, argv) = if cfg!(windows) {
+            (
+                PathBuf::from("cmd.exe"),
+                vec![
+                    "/c",
+                    "for /L %i in (1,1,200) do @echo aaaaaaaaaaaaaaaaaaaaaaaaaaaa 1>&2",
+                ],
+            )
+        } else {
+            (
+                PathBuf::from("sh"),
+                vec![
+                    "-c",
+                    "i=0; while [ $i -lt 200 ]; do echo aaaaaaaaaaaaaaaaaaaaaaaaaaaa >&2; i=$((i+1)); done",
+                ],
+            )
+        };
+        let (_tx, rx) = watch::channel(false);
+        let spec = JobSpec {
+            job_id: "j6".into(),
+            argv: argv.iter().map(|s| s.to_string()).collect(),
+            timeout: Duration::from_secs(10),
+        };
+        let (outcome, _ms) = run_job(bin, spec, caps(), rx).await;
+        match outcome {
+            JobOutcome::Completed { stderr, .. } => {
+                // 200 x ~30B emitted; only the bounded tail is retained.
+                assert!(!stderr.is_empty() && stderr.len() <= 64);
+            }
+            other => panic!("expected completed, got {}", other.status_str()),
+        }
     }
 }

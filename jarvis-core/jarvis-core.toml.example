@@ -35,9 +35,11 @@ max_concurrent = 1
 max_argv_count = 64
 # The prompt travels inside argv; this caps its total size on the wire.
 max_argv_bytes = 49152
-# Captured output caps; over-cap kills the child as output_overflow.
+# stdout is the payload: over-cap kills the child as output_overflow.
 max_stdout_bytes = 32768
-max_stderr_bytes = 262144
+# stderr is diagnostics: fully drained, only this many tail bytes retained
+# (llama.cpp -v emits ~0.5 MiB per run — a cap here must never kill).
+max_stderr_bytes = 65536
 
 [scheduler]
 tick_seconds = 1

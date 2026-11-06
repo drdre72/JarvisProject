@@ -134,11 +134,9 @@ impl Default for InferenceSection {
             max_argv_count: 64,
             max_argv_bytes: 48 * 1024,
             max_stdout_bytes: 32 * 1024,
-            // llama.cpp -v streams model/backend logs to stderr for the
-            // whole run; 8 KiB was crossed ~14s in and every real job was
-            // killed for output_overflow. 256 KiB stays bounded while
-            // covering verbose logging plus headroom.
-            max_stderr_bytes: 256 * 1024,
+            // Retained stderr tail for diagnostics — never kills the job:
+            // llama.cpp -v emits ~0.5 MiB of tensor/backend logs per run.
+            max_stderr_bytes: 64 * 1024,
         }
     }
 }
