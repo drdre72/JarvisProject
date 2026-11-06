@@ -28,6 +28,7 @@ from capability_registry import CapabilityRegistry
 from semantic_intent import INTENT_SCHEMA, parse_hypothesis, fulfill
 from runtime_log import get_runtime_logger
 import rust_core_feed
+import ambient_listener
 
 _whisper_stt = None
 
@@ -81,6 +82,14 @@ class JarvisApp:
         # every emit is failure-isolated and carries no transcript content.
         self.rust_feed = rust_core_feed.start_if_enabled()
         self._register_rust_obligations()
+
+        # Ambient hearing: one persistent capture segmented by energy,
+        # with deterministic playback attribution — audio overlapping our
+        # own TTS is suppressed and can never become a command. Suspended
+        # while the voice loop runs its own captures (same coverage, no
+        # dual-stream driver risk). Segments are metrics only; judging
+        # ambient speech is a separate gate that is not built yet.
+        self.ambient = self._start_ambient_listener()
 
         # Initialize audio and system monitoring
         self.setup_page()
@@ -817,6 +826,9 @@ class JarvisApp:
 
     def start_voice_recognition(self):
         """Start listening for voice commands using faster-whisper"""
+        # The voice loop opens its own stream per capture; suspend the
+        # ambient stream so only one input client exists at a time.
+        self._ambient_suspend()
         self.is_listening = True
         self._voice_generation += 1
         voice_generation = self._voice_generation
@@ -867,9 +879,50 @@ class JarvisApp:
                 except Exception as e:
                     print(f"Voice recognition error: {e}")
                     break
+            # Any loop exit hands the mic back to ambient hearing —
+            # including the max-empty self-pause path.
+            self._ambient_resume()
 
         self.voice_thread = threading.Thread(target=voice_loop, daemon=True)
         self.voice_thread.start()
+
+    def _start_ambient_listener(self):
+        try:
+            return ambient_listener.AmbientListener(
+                self._on_ambient_segment
+            ).start()
+        except Exception as error:
+            get_runtime_logger().warning(
+                "ambient listener unavailable type=%s", type(error).__name__
+            )
+            return None
+
+    def _ambient_suspend(self):
+        ambient = getattr(self, "ambient", None)
+        if ambient is not None:
+            ambient.stop()
+            self.ambient = None
+
+    def _ambient_resume(self):
+        ambient = getattr(self, "ambient", None)
+        if ambient is None:
+            self.ambient = self._start_ambient_listener()
+        elif not ambient.alive():
+            # A listener that died (device lost, exclusive-mode conflict)
+            # gets one clean restart instead of staying dead silently.
+            self.ambient = ambient.start()
+
+    def _on_ambient_segment(self, seg):
+        # Metrics only — ambient speech is heard, not judged. Nothing is
+        # transcribed, dispatched, or persisted from this layer yet.
+        get_runtime_logger().info(
+            "ambient segment seconds=%.2f rms=%.1f clipped=%.4f overlap=%.2f %s",
+            seg.seconds,
+            seg.rms,
+            seg.clipped_fraction,
+            seg.playback_overlap,
+            "suppressed=echo" if seg.suppressed else "heard",
+        )
 
     def stop_voice_recognition(self):
         """Stop voice recognition"""
@@ -880,6 +933,7 @@ class JarvisApp:
         rust_core_feed.cancel_active_inference()
         self.add_chat_message("Jarvis", "Voice recognition deactivated, sir.", True)
         speak("Voice recognition deactivated.")
+        self._ambient_resume()
 
     def toggle_avatar_video(self, e):
         """Toggle JARVIS avatar video playback"""
@@ -984,6 +1038,7 @@ class JarvisApp:
         self.should_monitor = False
         self.is_listening = False
         self._voice_generation = getattr(self, "_voice_generation", 0) + 1
+        self._ambient_suspend()
         feed = getattr(self, "rust_feed", None)
         if feed is not None:
             feed.close()

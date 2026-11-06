@@ -176,7 +176,16 @@
    behind the job it kills). Journal records status/bytes/exit codes
    only — never prompt or output text. Live wire tests use python.exe
    as the worker: completed/timeout/cancel/spawn_failed/busy/disabled
-   all verified; real llama.cpp child not yet exercised live.
+   all verified. Live-proven 2026-11-06: first real relayed
+   inference completed (exit 0, stdout 92B, stderr tail bounded at
+   65536B, ~14s); llama.cpp -v floods stderr ~0.5 MiB per run — stderr
+   is now drained with a bounded retained tail (never kills), stdout
+   keeps the hard cap. Live cancel against a running job untested
+   (answers were too fast to interrupt). Ambient hearing added:
+   persistent segmented capture with deterministic playback
+   attribution — segments overlapping TTS output are suppressed so
+   Jarvis cannot hear himself; metrics-only, ambient judgment and
+   voice barge-in remain unbuilt. Live echo check: tools/echo_probe.py.
 
 ## Rules of interpretation
 

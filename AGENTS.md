@@ -83,6 +83,18 @@ Private session notes and editor settings are intentionally not included.
   `memory/obsidian-vault/` or a deliberately chosen existing vault. Old
   `scripts/memory_system.py` JSON is read-only legacy context in the live app.
   `OBSIDIAN_BRAIN.md` explains approval and provenance.
+- Ambient hearing: `scripts/ambient_listener.py` runs one persistent mic
+  capture segmented by energy; `scripts/speaker.py` marks deterministic
+  playback state, and segments overlapping TTS output (start-in-echo or
+  >50% overlap, plus a 0.6s tail) are suppressed — Jarvis cannot hear
+  himself as the user. This is state attribution, not acoustic echo
+  cancellation: user speech starting during playback is also suppressed
+  (real barge-in needs a separate interrupt mechanism). Segments are
+  metrics-only — never transcribed, dispatched, or persisted; ambient
+  judgment ("was this addressed to Jarvis") is a separate unbuilt gate.
+  The voice loop suspends ambient while it owns the mic; resume is
+  idempotent and restarts a dead listener. `tools/echo_probe.py` is the
+  live self-hearing check.
 - The Markdown vault is part of Jarvis's local identity and memory; Obsidian
   is an optional viewer/editor, not an external vault-management tool.
   `Jarvis/Core/Purpose.md` is an optional user-authored, manually approved
