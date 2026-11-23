@@ -1,0 +1,260 @@
+# Proposed preregistration template; freeze and sign BEFORE any confirmatory run.
+# v1.2: incorporates Devin review (GLM-5.2 Max 1M, 2026-11-23) — verified
+# scale-threshold finding, reframed Gate 1, reverse-engineering directive (Gate
+# 0.5), hardware-stop condition, dropped "both" for W, quantized-edit protocol
+# deferred as separate track. See ROADMAP_v1.2.md for the full specification.
+protocol_version: 1.2.0-draft
+research_commit: TO_BE_PINNED
+
+# --- Verified prior (frozen: established evidence from the source paper) ---
+verified_prior:
+  source_paper: arXiv:2611.21885
+  source_paper_version: v2
+  source_paper_date: 2026-11-18
+  family_tested: Qwen3.5 at 2B, 4B, 9B, 27B (one protocol, one family)
+  results:
+    qwen3_5_2B: made_no_edit
+    qwen3_5_4B: broke_itself_held_out_accuracy_collapsed
+    qwen3_5_9B: broke_itself_47.5_to_0.0_to_0.0
+    qwen3_5_27B: improved_plus_6.6_points_second_protocol
+  emergence_threshold: between_9B_and_27B_in_this_family
+  implication: >-
+    The W subject (Qwen3.5-4B) is the exact model the source paper documents
+    as failing under an unconstrained edit surface. This is the dominant
+    prior on the central W hypothesis, not a caveat. The constrained
+    surface (Gate 0.5 -> Gate 1) is the variable that might change the
+    documented outcome; the model size is fixed by hardware.
+
+model:
+  id: Qwen/Qwen3.5-4B
+  revision: TO_BE_PINNED
+  dtype: bfloat16
+  quantum: null
+  allow_gradients: false
+  choice_justification: >-
+    Largest Qwen3.5 that fits comfortably at BF16 on the A4500 (~8 GB weights,
+    ~12 GB remaining for edit mechanism, KV cache, resident chamber). The
+    model that works (27B, ~56 GB BF16) does not fit. 9B (~18-20 GB BF16)
+    fills VRAM and is also documented to break itself. Proceeding at 4B is
+    a bet that the constrained edit surface changes the documented failure
+    — not a neutral compute-budget default.
+
+hardware:
+  gpu: RTX A4500
+  vram_gb: 20
+  cuda_driver: TO_BE_MEASURED
+  python: '3.11'
+  torch: TO_BE_PINNED
+  budget_gpu_hours_per_arm: TO_BE_MEASURED
+  fits_27B_bf16: false
+  fits_27B_fp8: false
+  fits_27B_int4: true_but_separate_protocol
+  fits_9B_bf16: marginal_no_room_for_edit_mechanism
+  fits_4B_bf16: true_comfortable
+
+# --- Gate 0.5: Failure-mode reverse-engineering (new in v1.2) ---
+# This gate precedes Gate 1 and derives the constrained edit surface from
+# observed failure modes, rather than from prior assumption. The edit_space
+# fields below are INITIAL values pending Gate 0.5; they are revised to
+# the Gate-0.5-derived surface before Gate 1 runs.
+gate_0_5_reverse_engineering:
+  status: preregistered_pilot_not_confirmatory
+  goal: derive_constrained_surface_from_evidence_not_assumption
+  protocol: reconstruct_source_paper_unconstrained_4B_failure
+  diagnostics_captured:
+    - tensor_families_targeted_dt_bias_A_log_attention_QKVO_mlp_gate_up_down_embeddings_lm_head
+    - magnitude_distribution_surviving_vs_collapsing_edits
+    - nan_inf_and_deltanet_recurrence_stability
+    - layer_distribution_early_middle_late
+    - proposer_scaffolding_autopsy_what_diagnostics_received
+    - edit_batch_behavior_single_vs_batched_correlated_failures
+  environmental_variables_probed:
+    - precision_bf16_only_in_this_gate_int4_deferred_to_quantized_edit_protocol
+    - edit_budget_cap_number_of_scalars_per_proposal
+    - layer_scope_early_middle_late
+    - magnitude_bounds_distribution
+    - proposer_scaffolding_what_diagnostic_info_seen
+    - edit_batch_size_single_vs_batched
+    - tensor_family_scope_which_families_cause_collapse
+  output: failure_mode_taxonomy_json
+  output_artifact: gate0.5_failure_taxonomy.json
+  go_condition: >-
+    Failure modes reproduced and diagnosed; constrained-surface design
+    derived from evidence; constrained surface runnable. The Gate 1
+    proposal.schema.json whitelist is justified by this taxonomy.
+  no_go_condition: >-
+    Failure cannot be reproduced (4B does not collapse unconstrained,
+    contradicting the paper — itself a finding); OR failure reproduced
+    but no constrained surface derivable from diagnostics (null for the
+    constrained-surface approach, fall back to preregistered adapter surface).
+  budget_gpu_hours: TO_BE_MEASURED
+
+# --- Edit space (INITIAL values pending Gate 0.5 taxonomy) ---
+# These are the v1.1 defaults, retained as the starting point. Gate 0.5
+# may revise enabled_families, magnitude bounds, and layer limits based on
+# the observed failure taxonomy. Any revision is frozen before Gate 1.
+edit_space:
+  derivation: initial_pending_gate_0_5_taxonomy
+  enabled_families: [dt_bias, A_log]
+  allowed_ops: [add_scalar]
+  min_abs_delta: 0.005
+  max_abs_delta: 0.5
+  max_changed_scalars: 4096
+  max_layers: 24
+  allow_arbitrary_python: false
+  fallback_surface_on_gate_2_no_go: [attention_QKVO_scalar_gates, mlp_gate_up_down_scalar_gates, gradient_free_low_rank_adapters]
+
+randomness:
+  decoding: greedy
+  seed_file_sha256: TO_BE_FROZEN
+  repeat_baseline_runs: 5
+
+proposer:
+  version: qwen_json_v1
+  prompt_sha256: TO_BE_FROZEN
+  max_attempts_per_candidate: 1
+  invalid_proposals_consume_budget: true
+  never_supplies: [python_code, filepath, arbitrary_tensor_name, test_questions, grading_code]
+
+# --- Gate 1: reframed question (v1.2) ---
+# The question is NOT "can 4B self-edit" (source paper answered: no,
+# unconstrained). The question IS "does a constrained surface change the
+# documented 4B outcome." Three outcomes, all informative:
+#   (a) catastrophic failure replicates paper -> threshold real, above 4B
+#   (b) safe null -> surface too narrow, trigger fallback surface
+#   (c) small useful change -> constraint is the missing ingredient (novel)
+gate_1_reframed:
+  question: does_constrained_surface_change_documented_4B_failure
+  outcome_a_catastrophic_failure: threshold_real_above_4B_regardless_of_surface
+  outcome_b_safe_null: surface_too_narrow_trigger_fallback_to_attention_mlp_adapters
+  outcome_c_small_useful_change: constraint_is_missing_ingredient_novel_finding_unlikely_not_ruled_out
+  go_condition: enough_valid_proposals_ge_80pct_schema_valid_and_non_random_rankings
+  no_go_condition: interface_impossible_or_random_ties_revise_under_new_versioned_protocol
+
+arms: [random, guided_grid, autonomous, frozen_editor]
+
+# --- Hardware-stop condition (new in v1.2, frozen decision) ---
+# Without this, the fallback loop can extend indefinitely past the point of
+# honest retirement. Retirement is a finding, not a failure.
+hardware_stop_condition:
+  applies_to: W_branch
+  trigger: >-
+    No meta-effect observed at 4B after (1) the Gate-0.5-derived constrained
+    surface AND (2) the preregistered fallback surfaces (attention/MLP scalar
+    gates, low-rank adapters), AND the source paper's emergence threshold
+    (>=27B) is confirmed as above this hardware's BF16 capacity.
+  action: retire_W_hypothesis_for_this_hardware_configuration
+  retirement_is_a_finding: true
+  reopening_requires: >-
+    Hardware that can hold a >=27B model at BF16, OR a separately
+    preregistered quantized-edit study that does not silently substitute
+    precision.
+  not_extended_indefinitely_to_new_surfaces: true
+
+primary_endpoints:
+  task_accuracy_delta_pp_minimum_practical_effect: 3.0
+  editor_delta_mean_improvement_per_gpu_hour: TO_BE_PREREGISTERED
+  adjust_for_multiple_comparisons: true
+  statistic_unit: lineage
+  multiple_comparison_correction: holm_for_prespecified_primary_comparisons
+  uncertainty_method: hierarchical_or_cluster_bootstrap_over_lineages_and_tasks
+  crossed_effects: editor_target_fixed_effects_2x2_crossover
+
+secondary_endpoints:
+  - minimum_validity_threshold
+  - inability_to_answer_rate
+  - latency_p50_p95
+  - outputs_per_second
+  - gpu_energy_estimate
+  - peak_vram
+  - regression_count_and_families
+  - ood_performance
+  - edit_unit_test_pass_rate
+  - cumulative_accepted_edits
+  - failure_modes_per_arm
+
+splits:
+  practice: proposer_visible_rotating_per_generation
+  selection: controller_only_rotated_by_generation
+  regression: controller_only_proposer_receives_bounded_summaries
+  sealed_final: independent_evaluator_only_one_opening_per_confirmatory_study
+  ood: final_diagnostic_only_not_used_for_selection
+
+# --- Claim ladder (frozen) ---
+# A finite study cannot establish improvement ad infinitum or exponential
+# growth as a law. Five generations permit a pilot trend, not model-form
+# identification between exponential, linear, and saturation.
+claim_ladder:
+  C0: protocol_executes
+  C1: repeatable_single_step_task_gain
+  C2: successor_model_becomes_better_editor
+  C3: successor_successor_demonstrates_independent_improvement
+  C4: sustained_growth_in_improvement_efficiency_across_independent_lineages
+  finite_study_limit: cannot_distinguish_exponential_linear_saturation_with_5_generations
+  keep_separate: [task_performance, editor_capability, performance_retention, compute_efficiency, autonomous_proposal_quality]
+
+confirmatory_design:
+  pilot_lineages: 3
+  confirm_lineages: TO_BE_POWERED
+  generations_pilot: 2
+  generations_confirm: TO_BE_POWERED
+  number_of_final_tasks: TO_BE_POWERED
+  stopping_rule: TO_BE_FROZEN_BEFORE_STUDY
+  final_read_once: true
+  independent_grader_approved_by: HUMAN_REVIEWER_REQUIRED
+  expansion_rule: TO_BE_FROZEN_BEFORE_STUDY_no_optional_stopping_on_promising_signal
+
+# --- Quantized-edit protocol (deferred separate track, new in v1.2) ---
+# NOT a continuation of the BF16 W study. A separate protocol testing whether
+# precision is an environmental variable that shifts the emergence threshold.
+# Do not begin until the BF16 W study (Gate 0.5 -> Gate 1 -> Gate 2) has
+# produced a result, because the BF16 result is the baseline against which
+# quantized-edit variables are compared. Running both in parallel confounds.
+quantized_edit_protocol:
+  status: deferred_separate_track
+  preregistration_artifact: preregistration.quantized-edit.yaml
+  not_begun_until: BF16_W_study_Gate_2_result
+  not_a_continuation: true
+  does_not_inherit_BF16_thresholds: true
+  variables_deferred:
+    - precision_BF16_vs_FP8_vs_Int4_primary_variable
+    - model_size_whether_27B_Int4_fits_and_exhibits_emergence
+    - edit_mechanism_adaptation_block_requantization_scale_preservation_outlier_handling
+    - threshold_probing_does_emergence_shift_down_or_does_quantization_erase_it
+  why_separate: >-
+    Silently substituting Int4 for BF16 in the main W study would change
+    the one variable (precision) the source paper's threshold finding
+    depends on. A quantized-edit run is a different experiment that does
+    not replicate the paper's threshold test and must not be presented as
+    confirming or denying it.
+
+# --- Multi-model W research: dropped for this stage (v1.2) ---
+# The bicameral + specialist-library Jarvis runtime is the right long-term
+# shape (ADR-0007 Stage II), but it is a runtime architecture contingent on W
+# producing something worth housing. Running two models in parallel as a W
+# design is dropped: the model that works (27B) does not fit, and 4B+9B
+# doubles cost for two documented nulls.
+multi_model_w_research:
+  status: dropped_for_this_stage
+  reason: 27B_does_not_fit_4B_9B_both_documented_to_break_themselves_doubles_cost_for_two_nulls
+  runtime_vision_deferred_to_stage_II: >-
+    ADR-0007 bicameral + specialist library is the right runtime shape,
+    contingent on W producing a model worth housing. The library is not
+    built before there is a specialist to house.
+
+notes: >-
+  v1.2 preregistration draft. Gate 0 (hardware preflight) and Gate 0.5
+  (failure-mode reverse-engineering) are pilots that determine variance,
+  cost, and the evidence-based constrained surface — they are not
+  confirmatory claims. Gate 1 (reframed) tests whether the constrained
+  surface changes the documented 4B failure, with three informative
+  outcomes. The hardware-stop condition retires the W hypothesis for this
+  hardware if no meta-effect survives the constrained surface and the
+  fallback surfaces, and the 27B threshold is confirmed out of reach at
+  BF16. The quantized-edit protocol is a separate deferred track, not a
+  continuation, testing precision as a threshold-shifting variable. Final
+  samples, effects, statistical tests, and power must be frozen before
+  private final data are opened. If required fields are placeholders, do
+  not run the confirmatory command. Nothing in this preregistration
+  establishes recursive or unbounded improvement; results require running
+  the protocols and independently validating their measurements.

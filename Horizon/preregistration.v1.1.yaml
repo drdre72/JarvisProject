@@ -1,0 +1,58 @@
+# Proposed preregistration template; freeze and sign BEFORE any confirmatory run.
+protocol_version: 1.1.0-draft
+research_commit: TO_BE_PINNED
+model:
+  id: Qwen/Qwen3.5-4B
+  revision: TO_BE_PINNED
+  dtype: bfloat16
+  quantum: null
+  allow_gradients: false
+hardware:
+  gpu: RTX A4500
+  cuda_driver: TO_BE_MEASURED
+  python: '3.11'
+  torch: TO_BE_PINNED
+  budget_gpu_hours_per_arm: TO_BE_MEASURED
+randomness:
+  decoding: greedy
+  seed_file_sha256: TO_BE_FROZEN
+  repeat_baseline_runs: 5
+edit_space:
+  enabled_families: [dt_bias, A_log]
+  allowed_ops: [add_scalar]
+  min_abs_delta: 0.005
+  max_abs_delta: 0.5
+  max_changed_scalars: 4096
+  max_layers: 24
+  allow_arbitrary_python: false
+proposer:
+  version: qwen_json_v1
+  prompt_sha256: TO_BE_FROZEN
+  max_attempts_per_candidate: 1
+  invalid_proposals_consume_budget: true
+arms: [random, guided_grid, autonomous, frozen_editor]
+primary_endpoints:
+  task_accuracy_delta_pp_minimum_practical_effect: 3.0
+  editor_delta_mean_improvement_per_gpu_hour: TO_BE_PREREGISTERED
+  adjust_for_multiple_comparisons: true
+  statistic_unit: lineage
+splits:
+  practice: proposer_visible
+  selection: controller_only_rotated_by_generation
+  regression: controller_only
+  sealed_final: independent_evaluator_only
+  ood: final_diagnostic_only
+confirmatory_design:
+  pilot_lineages: 3
+  confirm_lineages: TO_BE_POWERED
+  generations_pilot: 2
+  generations_confirm: TO_BE_POWERED
+  number_of_final_tasks: TO_BE_POWERED
+  stopping_rule: TO_BE_FROZEN_BEFORE_STUDY
+  final_read_once: true
+  independent_grader_approved_by: HUMAN_REVIEWER_REQUIRED
+notes: >-
+  Gate 0 and Gate 1 pilots determine variance/cost and are not confirmatory claims.
+  Final samples, effects, statistical tests and power must be frozen before
+  private final data are opened. If required fields are placeholders, do not run
+  the confirmatory command.

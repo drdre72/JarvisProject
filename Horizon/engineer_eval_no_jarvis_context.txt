@@ -1,0 +1,104 @@
+here is an evaluation from an engineer, i didn't give context really, hasn't seen Jarvis or know what its for. its just a look at the experiment::
+
+
+I reviewed it as an experimental design plus an execution plan. I haven't independently verified the cited papers or the Qwen3.5 architecture claims, so those are flagged as assumptions rather than checked.
+
+## What's strong
+
+- It separates functional, recursive, and compounding proof, and says finite experiments can't prove exponential growth.
+- It includes random and guided-search controls, so you can tell model-directed improvement from plain search.
+- It requires the proposer not to see the blind set or touch the grader.
+- Failed and saturated results are treated as findings.
+- Proposed methods are clearly marked as not established by the papers.
+
+## Critical gaps
+
+**1. The edit space may be too narrow to test the central hypothesis.**
+The recursion test depends on G1 being a *better editor* than G0. But the only editable parameters are `dt_bias` and `A_log` in the DeltaNet layers. These control state decay and timescales. The roadmap assumes that tuning them can change the model's ability to reason about and propose edits. That is unstated and unjustified. The likely outcome is that edits shift task-specific behavior (calibration, context-length sensitivity) without touching meta-capability. Before building the five-generation machinery, run a cheap probe: can any edit in this space change proposer quality at all, measured with the proposer's outputs held to a fixed rubric? Also define in advance what a null result means, and whether a wider edit surface (more parameter families, adapters) is the fallback.
+
+**2. The "proposer" is undefined.**
+"Qwen3.5-4B proposes edits" has no interface. What does the model see (weights, activations, failure logs)? What output format does it use? How are malformed proposals handled? A 4B model proposing numerical parameter changes may be indistinguishable from random. If so, the autonomous and random arms will tie, and you won't know whether that reflects the model or the prompt scaffolding. Specify the proposer prompt and tool protocol, and freeze it across generations. Otherwise "G1 is a better editor" can't be separated from harness changes.
+
+**3. The statistics can't support the claims at the stated sample sizes.**
+- The pilot (3 trials × 2 generations × 4 candidates, about 24 evaluations) cannot detect anything. Its acceptance rates are noise.
+- With a 240-task holdout, sampling noise is roughly ±3 percentage points. Accepting any candidate that "improves" on that set mostly accepts noise (winner's curse). You need a minimum effect size and an acceptance margin, not just "better."
+- The independent unit is the **lineage**, not the task. Ten lineages with paired bootstrap over tasks will understate uncertainty. Treat lineage as a random effect.
+- Five generations can't distinguish compounding from linear growth or early saturation. "Positive growth trend beyond matched controls" is not testable with five points.
+- "CI excludes zero" has no smallest effect of interest. With 2,000 tasks, trivially small effects will pass.
+- 800–2,000 tasks is sized for main effects. Interaction (synergy) estimates in a factorial design need roughly 4× the sample for the same precision.
+- "Expand only if something promising appears" is optional stopping. Pre-register the expansion rule.
+
+**4. There is no three-way data split for the generational loop.**
+Every acceptance decision needs some evaluation signal, and the sealed holdout can't supply it. Define separate sets: practice (the proposer may see failures), selection (accept/reject), regression (inheritance), and sealed final. Reusing one dev set across generations causes adaptive overfitting. Also check the Stage II leak path: if the evidence repository stores task details and the proposer retrieves them, sealed data can leak through memory.
+
+**5. The three principles don't share a substrate, so the "combination" phase is shakier than it looks.**
+Folding and self-editing are tested on Qwen3.5-4B. Byte building uses a 50–100M model trained from scratch. A byte model can't be obtained by converting Qwen. B+W needs a new editable-parameter adapter, as you note. B+F and F+W are different experiments on different models. So the F+W+B three-way test is effectively undefined, and findings at 50–100M may not transfer to 4B. Name a common substrate or say plainly that Phase 3 produces three unrelated pairwise results. Also note that only W is a self-improvement mechanism. F and B are efficiency or representation techniques, and the claim that they feed the recursive loop is an assumption.
+
+**6. Enforcement of the blind-evaluation rule is not specified.**
+"The proposer cannot inspect blind data or change grading code" needs a mechanism: separate process or OS user, read-only mounts, hash-locked grader, no shared filesystem, and an edit-surface whitelist so a proposal can't touch anything beyond the permitted tensors. The 14-day plan hands execution to an AI agent (Devin) that also writes the verifier. The same party building and auditing the grader is a conflict; assign a human review of the harness before any real run.
+
+## Significant gaps by phase
+
+**Folding**
+- 20% removal with 98% retention and no fine-tuning is aggressive for a 4B model. Published folding results are mostly on other architectures. Treat the criterion as a hypothesis, not a gate you expect to pass.
+- "20% of targeted parameters" can be a tiny fraction of the model if the targets are only some FFN channels. "Or substantially reduces cost" is undefined. Pick one primary metric.
+- Retention of "98%" needs a definition: aggregate or per task, relative or absolute, on which benchmarks.
+- The baselines omit quantization and distilling to a smaller model, which are the obvious competitors for the same resource savings. Folding that loses to 4-bit quantization isn't useful.
+- Gated FFNs (gate/up/down projections) have coupled weights. "Architecture-specific handling" is a research task, not a detail.
+- "Fold a folded model" will almost certainly degrade monotonically. Frame the real question as the compression frontier, not whether gains survive.
+
+**Self-editing**
+- BF16 edits plus GPU nondeterminism, sampling temperature, and Windows kernel fallbacks can make replicate evaluations disagree. Fix decoding (greedy or seeded), measure run-to-run variance first, and set the acceptance margin above it.
+- Bounds on edit magnitude are missing. `A_log` and `dt_bias` changes can destabilize recurrence and cause NaNs or long-context failure, which the "no regression" tests must cover.
+- A crossed design would sharpen the recursion claim: run G0 as editor on G1's checkpoint and G1 as editor on G0's, plus a frozen-editor control that runs the same number of generations.
+- Procedurally generated tasks risk training-distribution overlap with the generator and saturation. "Maximum reliably solved difficulty" needs an operational definition.
+
+**Byte building**
+- Converting token-level teacher probabilities to byte-level targets is the hard part (the roadmap says so) and has no design.
+- Distillation at 50–100M may not reproduce results from larger-scale papers. The teacher inference cost isn't budgeted.
+- Matching on both FLOPs and data is good. Add inference-time cost, since byte sequences are longer.
+
+**Infrastructure**
+- "No reason to make WSL2 a dependency" may be wrong. Optimized linear-attention kernels (flash-linear-attention, causal-conv1d) generally rely on Triton, which is poorly supported on native Windows. The fallback could make every candidate evaluation far slower and change your whole compute budget. Run the preflight benchmark before committing to the schedule.
+- There's no estimate of GPU-hours per candidate evaluation. Without it the 6–10 week timeline and the 10 × 5 confirmation run can't be checked. Reasoning-style generation over hundreds of tasks per candidate adds up.
+- Each full checkpoint is about 8 GB. Branching lineages need a retention policy, or patch-only storage with verified reconstruction.
+
+## Timeline issues
+
+- Days 9–11 for a byte-student baseline (tokenizer, data pipeline, training, matched-compute comparison) is unrealistic, especially given the distillation caveat above.
+- The 14-day plan has no stop/go decision points. If the Day 5–6 pilot shows nothing, what happens to Days 7–13?
+- Phase 4 (weeks 7–10) assumes Phase 2 has produced multiple independent lineages, but no lineage count or compute reservation is stated.
+
+## Stage II
+
+- It has no exit criteria, budget, or success metrics beyond milestones. M6 ("proposes and validates new experimental programs") is not measurable as written.
+- Level B ingests new papers and implementation changes into a hypothesis generator. That is an injection surface. "Evidence, not instruction" is a principle, not a mechanism. Specify how external text is isolated and who curates the semantic memory.
+- Semantic memory is "versioned and revisable" by the system. That allows drift or self-reinforcing errors with no stated audit. Require human review for promotions into semantic and procedural memory.
+- Reflection-state JARVIS using idle resources while "never inheriting authority to modify production" needs an actual permissions design, not a statement of intent.
+
+## Document and citation hygiene
+
+- The bibliography lists the same URL (arXiv:2611.21885) for both the weight-rewriting paper and the byte-distillation entry. Several links are chatgpt.com-tagged or image URLs, and one entry ("Neuron-Level Sequential Editing") is orphaned. Verify each ID, title, and claim against the actual paper. This matters because your whole motivation for W and B rests on them.
+- The text says the byte-distillation paper's strongest gains are extrapolated projections. Make sure the plan doesn't treat them as observed.
+- It still contains conversational artifacts ("your two proposed stages," "this is the order I'd give Devin"), placeholder chart text, and broken dashboard fragments. Clean these up before sharing it as a plan of record.
+
+## Unstated assumptions to write down
+
+1. The 4B model can produce non-random edit proposals.
+2. Edits in `dt_bias` and `A_log` can affect meta-capability, not just task accuracy.
+3. Gains measured on procedural tasks reflect general capability.
+4. Folding results at 50–100M transfer to Qwen3.5-4B.
+5. Byte-model results at small scale transfer to larger scale.
+6. Evaluation is deterministic enough that a small delta is signal, not noise.
+7. Native Windows performance is adequate for the required throughput.
+
+## Suggested priorities before starting
+
+1. Run the variance and kernel-performance preflight, since it determines every other budget.
+2. Run the edit-surface probe (item 1) before building the generational machinery.
+3. Define the proposer interface and the four-way data split.
+4. Fix the acceptance margin, lineage-level statistics, and the expansion rule in writing.
+5. Decide the common substrate for Phase 3, or drop the three-way claim.
+6. Add stop/go gates to the 14-day plan.
+
+I can turn this into a risk register with severity and owner columns, or draft the pre-registration (acceptance rule, split definitions, power calculation) for the self-editing experiment if you tell me the rough GPU-hours per candidate evaluation.

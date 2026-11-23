@@ -1,0 +1,529 @@
+Project JARVIS: The Recursive Intelligence Research Program
+Research roadmap v1.0 · November 23, 2026
+Central objective: Determine whether a relatively small AI can become progressively more capable by reorganizing information, modifying its own neural weights, and improving how it represents language—without proportionally increasing its parameter count, computational cost, or dependence on larger models.
+I would organize this around your two proposed stages:
+* Stage I — Principle & Benchmark: Establish which mechanisms actually work, discover their limitations, and determine how early recursive or compounding improvements can be demonstrated.
+
+
+* Stage II — Continuation & Evolution: Convert validated discoveries into persistent architectural improvements, allowing JARVIS to build on previous generations instead of starting over.
+
+
+There is one scientific distinction to establish immediately: we cannot prove infinite or exponential improvement with a finite experiment. We can demonstrate repeated improvement, estimate its growth rate, identify saturation, and test whether each improved generation becomes better at producing the next.
+That last property is the most important one.
+The three research principles
+I'm treating folding as a computational hypothesis about folding or compressing representations and neural structure while preserving useful information. This is distinct from your earlier physical spacetime-folding hypothesis, which would require a separate physics experiment rather than being assumed to work as an AI optimization technique.
+Interestingly, there is published work directly relevant to computational folding: Forget the Data and Fine-Tuning! Just Fold the Network to Compress (ICLR 2025), which merges structurally similar neurons without retraining, and its 2026 follow-up on projection geometry. This gives the folding track a concrete starting point.
+
+ICLR Proceedings+1
+
+
+Principle F — Folding
+Reduce redundant computation or representation while preserving capability. Test whether repeated folding can produce smaller, more efficient models without continually losing functionality.
+Primary question: Can the system retain or increase capability per unit of computation?
+
+
+Principle W — Self-Editing Weights
+Let a model diagnose problems in its own inference machinery, propose gradient-free parameter changes, and preserve independently validated improvements.
+Primary question: Can generation N reliably produce a better generation N+1?
+
+
+Principle B — Byte Building
+Construct or distill models that learn directly from byte sequences, potentially discovering more useful representations than fixed subword tokens.
+Primary question: Can a smaller model acquire more useful capability from the same training resources?
+The weight-rewriting paper provides initial evidence for Principle W; the byte-distillation paper provides evidence for Principle B, although its strongest long-run gains include extrapolated projections rather than observed unlimited improvement.
+
+arXiv+1
+
+The eventual objective is to find whether the three mechanisms reinforce one another rather than simply producing three separate optimizations.
+
+Stage I — Principle & Benchmark
+Proposed duration: 6–10 weeks, depending on GPU runtime and experimental results. Each phase has an exit criterion rather than an automatic deadline.
+1. The central benchmark: Does improvement compound?
+We need to distinguish three very different achievements.
+Level 1 — Functional proof
+One modification produces a measurable improvement. This is the easiest milestone and potentially achievable within the first experimental cycle.
+Level 2 — Recursive proof
+An improved model successfully improves its own successor, repeatedly, while maintaining previously acquired abilities.
+Level 3 — Compounding proof
+Later generations improve at least as effectively as earlier ones, with no corresponding growth in evaluation expense or inference cost that consumes the gains.
+Illustration: What sustained compounding would look like
+Hypothetical capability index, not measured results. An exponential curve eventually encounters resource and benchmark limits.
+
+Linear improvementHypothetical compoundingSaturating improvement
+90120150180210G0G1G2G3G4G5
+
+Conceptual curves. A capability index could represent the difficulty of new tasks solved reliably at a fixed inference-compute budget, rather than ordinary percentage accuracy, which is bounded at 100%.
+Our central hypothesis would be:
+\[ H_R:\quad G_{n+1}=F(G_n,E_n,R) \]
+Where:
+* \(G_n\) is the current model generation, including its weights and optimizer capabilities.
+
+
+* \(E_n\) is the verified experimental evidence accumulated at generation \(n\).
+
+
+* \(R\) is the fixed resource and evaluation budget.
+
+
+* \(F\) is the procedure by which that generation produces its successor.
+
+
+A successful recursive demonstration requires \(G_{n+1}\), not the unchanged original model, to propose the next generation's improvements.
+We also need to test whether progress comes from increasingly effective models or merely from more attempts, more data, or a better external search procedure.
+2. The master roadmap
+1. Phase 0 — Establish the laboratory
+Days 1–3 · Reproducibility and measurement
+Freeze the starting checkpoints, datasets, environment, evaluation scripts and resource budgets.
+
+
+2. Phase 1 — Isolate each principle
+Weeks 1–3 · Earliest functional proofs
+Run folding, self-editing, and byte-model experiments independently against controlled baselines.
+
+
+3. Phase 2 — Test recursive improvement
+Weeks 3–5 · Generational experiments
+Run successive generations, determine whether improvements survive inheritance, and test for saturation.
+
+
+4. Phase 3 — Test combinations
+Weeks 5–7 · Interaction experiments
+Determine whether combining principles produces synergy or destructive interference.
+
+
+5. Phase 4 — Independent confirmation
+Weeks 7–10 · Blind verification
+Reproduce promising results across seeds, new tasks, and untouched evaluation sets.
+
+
+6. Stage II — Persistent evolution
+After verified milestones · Continuing program
+Preserve working discoveries and establish an ongoing propose–test–consolidate cycle.
+
+
+3. Phase 0 — Build a common experimental foundation
+RTX A4500, with approximately 21 GB of VRAM and 32 GB of system RAM, is sufficient for meaningful experiments with Qwen3.5-4B and much smaller student models, provided we avoid loading multiple full-precision 4B checkpoints simultaneously.
+Use native Windows 11 and a Python 3.11 virtual environment as the starting setup. There's no reason to make WSL2 a dependency.
+The official Qwen3.5-4B architecture contains 32 blocks, with 24 Gated DeltaNet and eight attention blocks. The Transformer implementation has optional optimized kernels; without them, execution can fall back to slower operations. Hardware preflight should measure this rather than assume ideal performance.
+
+Qwen/Qwen3.5-4B-Base at main+1
+
+Shared research infrastructure
+Component	Implementation	Purpose
+Experiment controller	Python + CLI	Launch independent tests
+Model runtime	PyTorch + Transformers	Inference and parameter access
+Training	PyTorch optimizers	Byte-student experiments only
+Experiment tracking	SQLite + JSONL	Complete traceability
+Checkpoint storage	Safetensors + patch manifests	Reproducible generations
+Statistics	NumPy, SciPy, bootstrap routines	Confidence intervals
+Hardware telemetry	NVIDIA-SMI/NVML	VRAM, power, latency
+Evaluator	Deterministic Python graders	Independent outcome verification
+Capture Git commit IDs, model revisions, dataset hashes, seeds, dependency versions and CUDA information for every experiment.
+Every run should produce the same record structure:
+experiment_id
+parent_generation
+model_hash
+experiment_principle
+hypothesis
+proposed_modification
+search_budget
+compute_consumed
+evaluation_results
+regression_results
+accepted_or_rejected
+checkpoint_or_patch_hash
+Crucially, the proposer cannot inspect the blind evaluation data or change the grading code.
+4. Phase 1A — Folding experiment
+Research question: Can structural redundancy be removed repeatedly without proportional capability loss?
+Start with small, conventional Transformer models before attempting structural modifications to Qwen3.5's hybrid attention architecture.
+The model-folding literature provides an established method based on clustering related neurons. There is also an official research implementation that includes LLaMA experiments, although this is not a ready-made Qwen3.5 compression tool.
+
+GitHub
+
+Experimental sequence
+Test	Modification	Measurement
+F1	Fold 10% of selected FFN channels	Accuracy, memory, latency
+F2	Fold 20%	Identify quality degradation
+F3	Fold 30%	Find practical compression limit
+F4	Fold an already folded model	Determine whether gains survive recursion
+F5	Compare with equal-size pruning and low-rank compression	Is folding genuinely better?
+Begin with a 50M–100M parameter Transformer. Once stable, attempt selected FFN-channel folding in Qwen3.5-4B with architecture-specific handling of coupled weights and nonlinearities.
+A fold must produce an actual reduced tensor shape or executable computational reduction. Merely setting parameters to zero or sharing values in an unchanged dense matrix does not establish a runtime efficiency gain.
+Proposed first success criterion
+A candidate passes the initial engineering benchmark if it:
+* Removes at least 20% of the targeted parameters or substantially reduces measured inference cost.
+
+
+* Retains at least 98% of baseline task performance.
+
+
+* Shows no major regression on unseen tasks.
+
+
+* Produces a measurable memory, throughput or latency improvement when deployed.
+
+
+The key recursive experiment is to fold, evaluate, and fold again. If capability deteriorates rapidly, repeated folding has a practical limit. If redundancy remains and repeated folding can be offset by useful structural changes, the research becomes more interesting.
+5. Phase 1B — Self-editing weights
+Research question: Can Qwen3.5-4B discover modifications that improve its future performance, rather than merely benefiting from modifications found by another optimizer?
+We can reuse the Self-Rewrite Lab already developed as the starting implementation.
+The current controlled edit targets are dt_bias and A_log within the Gated DeltaNet layers. These offer small and reversible modifications without conventional training.
+Required experimental arms
+Arm	Who proposes edits?	What does it establish?
+Random control	Seeded random search	Chance improvement
+Guided control	Fixed search algorithm	Effectiveness of the edit space
+Autonomous	Qwen3.5-4B	Model-directed improvement
+Recursive autonomous	Latest accepted generation	Whether improvements compound
+Run a cheap pilot first: three independent trials, two generations per trial, four candidates per generation.
+Only expand the search if something promising appears.
+The confirmation target is at least ten independent trials and five generations, with matched search budgets across the controls.
+The fundamental distinction
+Ordinary iterative optimization
+Original editor
+Better candidate
+Better candidate
+The original editor remains in control throughout.
+
+True recursive self-editing experiment
+G0 edits
+G1 edits
+G2 edits
+Each successor becomes the next editor, with the same tools and permitted budget.
+That second test is the one capable of supporting your broader hypothesis.
+If the same frozen editor finds five better checkpoints, that's evidence for effective search. If every improved generation can become a more effective editor, we have evidence for recursive improvement.
+The two outcomes must be reported separately.
+6. Phase 1C — Byte-building experiment
+Research question: Can the same knowledge be learned more effectively when represented as bytes rather than conventional tokens?
+We should compare three small models:
+Student	Representation	Training objective
+T0	Subword tokens	Standard training / distillation
+B0	Raw UTF-8 bytes	Next-byte prediction
+B1	Raw bytes + EOT	Teacher distillation
+Target a 50M–100M parameter range, not a billion-parameter training project.
+The paper's EOT distillation requires converting the teacher's token probabilities to an appropriate byte-level target. This is more involved than simply saving a teacher-generated text dataset.
+Since byte-level prediction creates much longer sequences, compare models under both equal training FLOPs and equal source-data volume.
+Measure:
+* Bits per byte on held-out text.
+
+
+* Exact-answer accuracy on structured tasks.
+
+
+* Robustness to misspellings, identifiers, code and unfamiliar byte sequences.
+
+
+* Training GPU-hours, inference milliseconds and energy.
+
+
+* Retention of abilities after additional training.
+
+
+An especially relevant baseline is the Byte Latent Transformer architecture, which groups bytes into dynamic patches instead of processing everything through one global transformer. Research published in 2025 and 2026 explores improvements to its inference efficiency.
+
+ACL Anthology+1
+
+The first byte-model experiment should answer whether the extra modeling flexibility pays for its computational overhead—not simply whether it can achieve good accuracy after enough training.
+7. Phase 2 — The recursive growth benchmark
+Once the independent experiments show promising results, we move to generations G0 through G5.
+Each generation starts from an accepted parent checkpoint. It may inspect its own practice failures, propose modifications, test candidates, and select a successor.
+All generations receive equal candidate budgets, tool interfaces and evaluation rules.
+Required measurements per generation
+Capability	Held-out task success and maximum reliably solved difficulty
+Efficiency	Quality per GPU-hour, joule and inference-second
+Inheritance	Previously correct tasks retained
+Autonomy	Useful improvements originated by the model itself
+Search quality	Accepted improvements per fixed candidate budget
+I would add progressively harder procedurally generated tasks whose answers can be independently checked. These avoid mistaking saturation on an easy benchmark for the end of useful capability growth.
+The strongest positive result would be a generation that not only solves harder problems but also finds better improvements per experiment than its predecessor.
+Stage I exit gate: We should not call the system recursively self-improving until an improved generation has successfully produced further improvement, independent evaluations confirm the gains, and the result has been repeated across independent lineages.
+An early positive result could appear after two generational transitions. Five or more generations provide stronger evidence of persistence, and larger blinded replications are required before making claims about growth rates.
+8. Phase 3 — Combine the principles
+This is where the research moves beyond reproducing published techniques.
+We need to discover whether the three methods are complementary, redundant, or incompatible.
+Proposed combined architecture
+Raw information and experience
+Text · code · sensor observations · tool results
+
+Byte encoder
+Learn compact representations
+Folding engine
+Remove redundant structure
+
+Adaptive inference model
+Reasoning and problem-solving
+
+Self-editing optimizer
+Analyze errors · propose changes · test candidates
+
+Independent validation
+Accept · reject · rollback · preserve evidence
+Accepted improvements feed the next generation
+This is a research target, not something the existing model implementations can simply be plugged into.
+Combination test matrix
+Experiment	Research question
+F + W	Can folded models still improve their own weights?
+B + F	Can structural folding improve the efficiency of byte models?
+B + W	Can a byte model discover useful internal parameter changes?
+F + W + B	Do all three produce a measurable benefit together?
+The first combined experiments should be B+F on a small student and F+W on a compatible Qwen checkpoint.
+For F+W, test both folding before editing and editing before folding, because the operations may not commute.
+For B+W, we'll need a new editable-parameter adapter appropriate to the byte model. Qwen's dt_bias and A_log strategy cannot automatically transfer to a conventional small Transformer.
+Only advance to the three-way combination after those pairwise tests work.
+What would count as synergy?
+Suppose combining folding and self-editing produces a better model than either technique alone.
+That doesn't automatically prove synergy.
+We want an improvement exceeding the expected independent contributions, evaluated using a common performance measure. A factorial experiment can measure this interaction directly.
+That establishes whether the techniques reinforce one another, rather than merely coexisting.
+9. Phase 4 — Final verification
+The initial lab's 240-task holdout is appropriate for exploratory testing, but probably insufficient to confirm small improvements reliably.
+For final validation, I'd target approximately 800–2,000 independent, blind tasks per primary comparison, adjusting the sample size through a pre-experiment statistical power calculation.
+Use paired evaluation, confidence intervals, multiple-comparison correction, independent trial seeds, and entirely new task families.
+The candidate-selection process must never use these results for further optimization. Once the final holdout is opened, a new research cycle requires a fresh sealed test set.
+Stage I decision gates
+Folding	Meaningful measured resource reduction, at least 98% relative performance retention, reproducible across seeds
+Self-editing	Positive blind-task performance difference with a confidence interval excluding zero; repeatable beyond one lucky run
+Byte building	Better quality or efficiency at matched resources, accounting for longer inference sequences
+Recursion	Improved descendants produce further validated improvements under unchanged budgets
+Compounding	Positive generational growth trend beyond matched controls, sustained across fresh task distributions
+These are proposed acceptance criteria, not reported experimental outcomes.
+
+We should also keep failed experiments. A demonstrated saturation point, unsuccessful interaction, or fundamental resource bottleneck is a useful research result.
+
+Stage II — Long-Term Building & Continuation
+Stage II is not simply making the winning model bigger or running the same benchmark repeatedly.
+Its purpose is to turn experimental knowledge into a persistent mechanism for developing JARVIS.
+The proposed structure has four levels.
+10. Level A — Persistent scientific memory
+Every experiment, including failures, becomes part of an evidence repository.
+JARVIS should be able to retrieve more than a summary such as folding worked.
+It should retain the precise conditions:
+* Which model and checkpoint were used.
+
+
+* What modification was attempted.
+
+
+* Which tasks improved or degraded.
+
+
+* The observed resource costs.
+
+
+* Whether the result was replicated.
+
+
+* Which future experiments could distinguish competing explanations.
+
+
+This creates three separate forms of memory.
+Memory	Contents	Persistence
+Episodic	Complete individual experiment records	Immutable
+Semantic	Verified findings, models and limitations	Versioned and revisable
+Procedural	Reusable successful editing and evaluation methods	Promoted after testing
+Consider a hypothetical finding:
+Generation G3 improved reasoning accuracy after adjusting a DeltaNet parameter, but its performance on long-context retrieval deteriorated.
+Instead of treating the experiment as a complete success, JARVIS would extract two claims and propose a targeted follow-up.
+Perhaps the gain depends on context length. Perhaps it depends on only a few layers. Perhaps the change merely favors shorter reasoning traces.
+That evidence now guides a new investigation.
+This is how research compounds even when model capability itself does not.
+11. Level B — Reinterpret new discoveries into experiments
+This directly addresses your second-stage objective.
+I would establish a structured evidence-to-hypothesis process:
+1. Observe: Collect new experimental outcomes, research papers, implementation changes and recurring JARVIS failures.
+
+
+2. Interpret: Extract factual claims, proposed mechanisms, assumptions and unresolved questions.
+
+
+3. Compare: Search the existing evidence repository for supporting or contradictory findings.
+
+
+4. Hypothesize: Propose a falsifiable modification or architectural experiment.
+
+
+5. Prioritize: Estimate possible benefit, resource cost, uncertainty and information gained.
+
+
+6. Test: Execute the experiment in an isolated environment with frozen success criteria.
+
+
+7. Consolidate: Update scientific memory and promote only improvements that survive independent evaluation.
+
+
+For example, JARVIS might encounter a new paper describing a more efficient byte-level decoder.
+It would compare that method with our existing B1 student and ask whether the proposed mechanism addresses a measured bottleneck. If it does, JARVIS could propose a controlled implementation and evaluation.
+New research would therefore enter as evidence and a candidate hypothesis, not as an automatically trusted instruction or model update.
+12. Level C — Wake, reflection and consolidation
+This fits the active/sleeping division you previously envisioned for JARVIS.
+
+Active state — Stable JARVIS
+Provides low-latency interaction, reasoning, persistent user memory and authorized tool execution. Logs actionable errors and uncertainties without changing its own live weights.
+
+
+Reflection state — Research JARVIS
+Uses idle or explicitly allocated resources to classify failures, propose experiments, test candidate improvements and update the scientific evidence repository.
+
+
+Consolidation state — Versioned promotion
+Compares candidates with the active model, runs regression tests, and makes validated versions available for explicit approval and deployment.
+This allows the runtime to remain stable while research continues independently.
+For a portable version of JARVIS, these states could also have resource-aware policies. Computationally expensive experimentation would activate only when sufficient GPU capacity and power are available.
+The original runtime would retain its own permissions and safety boundaries. Experimental generations would never inherit authority to modify production permissions or deploy themselves automatically.
+13. Level D — Build a cumulative model lineage
+Every accepted candidate gets a generation identifier and a parent.
+JARVIS-G0
+  |
+  +-- G1: Successful parameter edit
+        |
+        +-- G2: Improved error diagnosis
+        |     |
+        |     +-- G3: Further validated edit
+        |
+        +-- G2-F: Folded deployment candidate
+              |
+              +-- G3-FW: Edited folded model
+A separate byte-model lineage tracks trained students and their architectures.
+The most important feature is branching rather than destructive replacement.
+A model may become faster but less capable. Another may become more capable but require too much memory. Both can be retained as experimental descendants without declaring one universally superior.
+Later experiments could discover that a fast folded model makes a better diagnostic specialist, while the uncompressed model remains preferable for general reasoning.
+That's a more realistic route to a sustainable multi-model JARVIS than assuming every generation must replace the entire system.
+14. Long-term research milestones
+Milestone	Objective	Promotion requirement
+M1 — Functional	One verified beneficial modification	Independent replication
+M2 — Recursive	Improved model produces another improvement	Generational blind evaluation
+M3 — Persistent	Improvements survive several generations	Retention and regression tests
+M4 — Efficient	More capability at fixed or lower resources	Measured end-to-end efficiency
+M5 — Adaptive	Research evidence guides new experiments	Better results than fixed search
+M6 — Autonomous research	JARVIS proposes and validates new experimental programs	Independent verification, reproducibility and bounded authority
+I would not label M6 as AGI. It would establish a genuinely useful, autonomous research capability within a defined scope.
+
+First execution cycle: 14-day plan
+This is the order I'd give Devin, starting with the existing Self-Rewrite Lab rather than rebuilding everything.
+Period	Priority	Required deliverable
+Days 1–2	Freeze and audit existing lab	Baseline report, model hashes, GPU profile
+Days 3–4	Add experiment lineage and independent verifier	G0→G1→G2 progression with full rollback
+Days 5–6	Run the self-editing pilot	Autonomous versus guided versus random
+Days 7–8	Implement small-model folding	Compression-versus-quality curves
+Days 9–11	Implement token/byte student baseline	Matched-compute comparison and byte-loss measurements
+Days 12–13	Test inherited edits and repeated folding	Preliminary recursion and saturation report
+Day 14	Consolidate evidence	First decision report and next research hypotheses
+This schedule assumes the software and checkpoint dependencies pass preflight and the first experiments are computationally manageable. It's an execution target, not a guarantee that training and confirmation will finish within two weeks.
+The research dashboard
+I would build one dashboard that reports each principle independently and tracks generations over time.
+
+WeightsFoldingBytes
+Weight self-editing
+Prototype available; real GPU validation outstanding
+
+Primary metric
+Blind accuracy difference, generational improvement and proposer success rate
+Next deliverable
+Run G0→G1→G2 against guided and random controls
+Develop this milestone
+The critical result I would pursue first
+There is one experiment I consider more important than all the others combined:
+Can Qwen3.5-4B improve its own ability to improve itself?
+Not merely answer more questions. Not merely discover one good numerical edit.
+Can G1, after being modified by G0, become a better optimizer than G0—given exactly the same experimental resources?
+If G2 then improves on G1, and G3 on G2, we can begin measuring how much of the improvement comes from genuine changes to the model rather than a fixed search harness.
+Folding and byte building then become candidate mechanisms for making that recursive process more efficient, or expanding which representations and structures it can modify.
+The ambitious long-term outcome would be a JARVIS whose research efficiency, memory, inference capability, and computational economy improve together, without needing to expand its runtime proportionally.
+That's the research thesis I would establish. And importantly, the roadmap is built to discover when that thesis is wrong, not just produce benchmarks that make it look right.
+Research foundations: Self-Rewriting · Byte Distillation · Model Folding · Byte Latent Transformer
+
+
+Here’s the source bibliography for the JARVIS Recursive Intelligence Research Roadmap, organized by research principle.
+I've prioritized the original research papers, official implementations, and model documentation rather than secondary articles.
+1. Primary research papers
+Neuron-Level Sequential Editing for Large Language Models | Read Paper on Bytez
+
+
+
+1. Language Models Can Rewrite Their Own Weights
+November 2026 · arXiv:2611.21885. https://arxiv.org/abs/2611.21885
+Used for: Self-directed BF16 weight editing, gradient-free optimization, experimental controls, and recursive model improvement.
+Provides the primary evidence motivating our Qwen3.5-4B Self-Rewrite Lab.
+
+arXiv
+
+
+Distilling Token-Trained Models into Byte-Level Models | AI Research Paper Details. https://arxiv.org/abs/2611.21885
+
+
+
+2. Breaking the Token Ceiling: Distilling Smaller, Stronger Byte Models https://arxiv.org/abs/2609.12303
+September 2026 · arXiv:2609.12303
+Used for: Byte-level knowledge distillation, End-Of-Token training, teacher/student comparisons, and compute-efficiency benchmarking.
+This is the paper you brought to the discussion from DAIR.AI.
+
+arXiv
+
+
+Reading Lists - FusionBench
+https://images.openai.com/static-rsc-4/vCiSLr-NdMTlBzuo1fRmboPG6dlMNKSvtRQLuf4o-aymNtcK7AOKE0Wgm7TEgUvyQRb4oKar2UjDSzHHYLowwtnzP1Z8vrbI_I9jh9wMNRL4EioMGmaF_0mPXyJp4Dff7peZHFe4jpegB7cED6fRKVv_TZMUumqMMVzrGUZk9po?purpose=inline
+
+
+3. Forget the Data and Fine-Tuning! Just Fold the Network to Compresshttps://arxiv.org/abs/2502.10216?utm_source=chatgpt.com
+ICLR 2025 · arXiv:2502.10216
+Used for: Network folding, neuron merging, structural compression without retraining, and repeated compression experiments.
+This is the research foundation for the computational interpretation of your folding principle.
+
+ICLR Proceedings
+
+
+Byte Latent Transformer: Patches Scale Better Than Tokens | by Kuldeep Singh Sidhu | DailyResearchPapers | Medium. https://images.openai.com/static-rsc-4/j2wkHJKMOC6Mv1WL2tuU3ykqKLL0rpfz6Ddu7sje5BPvLGp26hsW9bEvKfU1V1wA2cvyElyMOSWuTCef5fz5y-CqPEkbJ55s1UJJOvfOsfd-ZyBKmACg-dt0WBRSW7u-eyZ4NZ_8js75yCOTEYqCjncbiJasvLRaHIiIJjv9VFQ?purpose=inline
+
+
+
+4. Byte Latent Transformer: Patches Scale Better Than Tokens.   https://aclanthology.org/2025.acl-long.453/?utm_source=chatgpt.com
+ACL 2025 · DOI: 10.18653/v1/2025.acl-long.453
+Used for: Hierarchical byte representations, dynamic patching, and addressing the inference inefficiency of character- and byte-level models.
+
+ACL Anthology
+
+These four publications form the core scientific bibliography. All four are accessible through the links above.
+2. Supporting research and implementations
+Source	How it supports the roadmap
+Cut Less, Fold More (ICLR 2026)	Follow-up research explaining folding through projection geometry; useful for comparing folding and pruning.
+
+ICLR Proceedings
+Model Folding — Official GitHub	Reference implementation for testing the folding principle.
+
+GitHub
+Qwen3.5-4B — Official Model	Starting checkpoint for self-editing and generational experiments.
+
+Qwen/Qwen3.5-4B at main
+Qwen3.5-4B Base Model	Optional pretrained comparison checkpoint without the instruction-tuning stage.
+
+Qwen/Qwen3.5-4B-Base at main
+Hugging Face Transformers — Qwen3.5	Model architecture, Gated DeltaNet, layer configuration, and implementation requirements.
+
+Hugging Face
+3. What is original to our research proposal?
+It's important to separate the published evidence from the experiments we've designed.
+The following are proposed JARVIS research methods, not established findings from those papers:
+* Testing Qwen3.5-4B over five or more inherited self-editing generations.
+
+
+* Measuring whether improved descendants become better at improving subsequent descendants.
+
+
+* Combining network folding with gradient-free weight editing.
+
+
+* Testing whether byte-level students can independently discover useful parameter changes.
+
+
+* Measuring whether all three principles exhibit positive interaction effects.
+
+
+* Using an active/reflection/consolidation lifecycle for continuous experimentation.
+
+
+* Maintaining a permanent research lineage and using validated discoveries to generate further hypotheses.
+
+
+The estimated timelines, trial counts, benchmark thresholds, and resource budgets are also our experimental design choices, not recommendations proven optimal by the authors.
+My suggested reading order: Start with Language Models Can Rewrite Their Own Weights, then Forget the Data and Fine-Tuning, followed by Breaking the Token Ceiling and Byte Latent Transformer.
+That gives us a progression from model adaptation to structural optimization to information representation.
+These sources would form the initial scientific bibliography for Project JARVIS. Each subsequent experiment should record its exact source references, code revisions, and observations so the eventual research program can distinguish published evidence, reproduced results, and original discoveries
