@@ -26,11 +26,13 @@ The self-rewriting paper (`arXiv:2611.21885`, v2, 18 Nov 2026, Fan et al.) teste
 | Size | Self-edit on own weights | Damaged-copy repair | Located damage? |
 |---|---|---|---|
 | 2B | Made no edit | No edit attempted | No (never reads a weight) |
-| **4B** | **Broke itself (held-out accuracy collapsed after its own submitted edit)** | Failed | No |
-| **9B** | **Broke itself (47.5% → 0.0% → 0.0%)** | Failed | No (never names a matrix) |
+| **4B** | **Candidate collapse → withdrew edits** (recognized the long-output symptom, never inspected hidden states, pursued speculative changes, withdrew after many failed paired tests) | Failed | No |
+| **9B** | **Submitted a damaging edit that collapsed on held-out tasks (47.5% → 0.0% → 0.0%)**, using trial-and-error and weak self-tests | Failed | No (never names a matrix) |
 | 27B | **Improved (+6.6 points, second protocol)** | Restored to 33% | Yes (layer 30) |
 
-The emergence threshold in this family sits **between 9B and 27B**. The W subject (Qwen3.5-4B) is the exact model the paper documents as failing. This is not a caveat; it is the dominant prior on the central W hypothesis. The paper's failure reporting is thin: it reports that 4B and 9B "broke themselves" but does not diagnose *which* edits caused collapse, *which* tensor families were targeted, whether magnitude or layer choice was the cause, or whether the proposer's scaffolding (what it saw, how it proposed) contributed. That gap is the research opportunity addressed in §0.3 below.
+*Correction (Frontier Synthesis, 24 Nov): the three outcomes above are distinct — a candidate failure followed by withdrawal (4B) is not the same event as a submitted collapse (9B). The paper v2 (sections 3.1, E.2, figures 11/23) DOES document failure trajectories and reasoning/tool-use differences; what remains missing is a fully controlled tensor-by-tensor, perturbation-matched failure analysis. The earlier claim that the paper gives "almost no failure diagnostics" was overstated.*
+
+The emergence threshold in this family sits **between 9B and 27B — under this protocol and this family**. It is a conditional finding, not a universal scale law: interventions, proposal format, decoding, observation data, task objective and stopping behavior are confounded across the reported sizes. The W subject (Qwen3.5-4B) is the exact model the paper documents as failing, so the result remains the dominant prior on the central W hypothesis — but it should not be cited as a proof that any 4B model fails at self-editing.
 
 ### 0.2 The 4B decision, stated honestly
 
@@ -47,9 +49,9 @@ So on this hardware, **the W research is a 4B experiment or it is nothing.** The
 
 ### 0.3 Reverse-engineering directive (new in v1.2)
 
-The source paper reports that 4B and 9B "broke themselves" but provides minimal failure-mode analysis — no per-edit diagnostics, no tensor-family breakdown, no magnitude/layer distribution, no proposer-scaffolding autopsy. This is a research gap, not a complaint: the paper's contribution was the 27B success, not the smaller-model failure analysis. But it means the constraints in this protocol's edit surface (`dt_bias`/`A_log` only, bounded deltas) are currently **guesses** about what would prevent collapse. They should be **evidence-based**.
+The source paper v2 documents failure *trajectories* — the 4B model recognized its symptom but pursued speculative edits without inspecting hidden states; the 9B relied on trial-and-error with weak self-tests (sections 3.1, E.2, figures 11/23). What it does NOT provide is a fully controlled per-edit failure analysis: no tensor-family breakdown, no magnitude/layer distribution under matched perturbation, no proposer-scaffolding autopsy. This is a research gap, not a complaint: the paper's contribution was the 27B success. But it means the constraints in this protocol's edit surface (`dt_bias`/`A_log` only, bounded deltas) are currently **guesses** about what would prevent collapse. They should be **evidence-based**.
 
-The reverse-engineering study (Gate 0.5, §4) reconstructs the paper's reported 4B failure under the paper's unconstrained protocol, captures per-edit diagnostics, and derives the constrained-surface design from observed failure modes. It also surfaces **environmental variables** that may shift the emergence threshold — variables the paper did not test because it held them fixed:
+The reverse-engineering study (Gate 0.5, §4) maps the failure boundary under an **alternate structured protocol** — a reconstruction inspired by the paper's reported 4B failure, not an exact replication of its scaffold, decoding, observation data or stopping behavior. Divergence between Gate 0.5 and the paper's result is expected and cannot adjudicate between interface competence and model competence; it captures per-edit diagnostics the paper did not report and derives the constrained-surface design from observed failure modes. It also surfaces **environmental variables** that may shift the emergence threshold — variables the paper did not test because it held them fixed:
 
 - **Precision:** BF16 vs FP8 vs Int4 (the variable that gates whether 27B is reachable; deferred to the separate quantized-edit protocol, §9).
 - **Edit budget:** number of scalars edited per proposal; the paper's protocol allowed arbitrary scope.
@@ -184,9 +186,9 @@ Do not continue reusing the same blinded tasks across versions and call them bli
 
 ### Gate 0.5 — Failure-mode reverse-engineering study (new in v1.2)
 
-**Motivation:** the source paper reports that 4B and 9B "broke themselves" but provides minimal failure-mode analysis. The constrained edit surface (`dt_bias`/`A_log` only, bounded deltas) is currently a guess about what would prevent collapse. This gate makes the constraints **evidence-based** by reconstructing the failure and deriving the constrained-surface design from observed failure modes. It also surfaces environmental variables that may shift the emergence threshold (§0.3).
+**Motivation:** the source paper v2 documents failure trajectories (4B: speculative edits without hidden-state inspection, then withdrawal; 9B: trial-and-error submitted collapse) but no per-edit, perturbation-matched failure analysis. The constrained edit surface (`dt_bias`/`A_log` only, bounded deltas) is currently a guess about what would prevent collapse. This gate makes the constraints **evidence-based** by mapping the failure boundary under an alternate structured protocol and deriving the constrained-surface design from observed failure modes. It also surfaces environmental variables that may shift the emergence threshold (§0.3).
 
-**Tasks:** rerun the paper's *unconstrained* protocol on Qwen3.5-4B (proposer sees its weights, proposes any edit to any tensor at any magnitude; harness applies it). Capture per-edit diagnostics that the paper did not report:
+**Tasks:** run an *unconstrained-in-spirit* structured protocol on Qwen3.5-4B — a reconstruction, not an exact replication (the paper's scaffold, decoding, observation data and stopping behavior are partially unspecified). Proposer sees its weights, proposes edits across a broad tensor space; harness applies them. Capture per-edit diagnostics that the paper did not report:
 - **Tensor families targeted:** which of dt_bias / A_log / attention Q/K/V/O / MLP gate/up/down / embeddings / lm_head did the 4B proposer edit?
 - **Magnitude distribution:** deltas proposed by surviving vs collapsing edits.
 - **NaN/Inf and recurrence stability:** did edits destabilize DeltaNet recurrence (state explosion, NaN propagation)?
@@ -205,7 +207,7 @@ Do not continue reusing the same blinded tasks across versions and call them bli
 **Reframed question:** The source paper's 4B result used an unconstrained edit surface — any tensor, any magnitude, any operation — and the model broke itself. This protocol's surface is bounded by the Gate 0.5 taxonomy: `dt_bias`/`A_log` (or whichever families the taxonomy identifies as safe), deltas 0.005–0.5, ≤4096 scalars, ≤24 layers, whitelist-enforced, `torch.no_grad()`. **The constraint is the genuine variable.** The question is not "can 4B self-edit?" (the paper answered: no, unconstrained) but "does a constrained surface change the documented 4B outcome from 'breaks itself' to either 'safe no-op' or 'small useful change'?"
 
 Three outcomes, all informative:
-- **(a) Catastrophic failure replicates the paper** → the constraint isn't enough; the emergence threshold is real and above 4B regardless of surface.
+- **(a) Catastrophic failure consistent with the paper's finding** → the constraint isn't enough; the emergence threshold is real and above 4B regardless of surface (under protocol-comparable conditions).
 - **(b) Safe null** → the constraint prevents catastrophe but also prevents signal; the surface is too narrow, triggering the preregistered fallback to attention/MLP scalar gates or gradient-free low-rank adapters.
 - **(c) Small useful change** → the constraint is the missing ingredient; the paper's unconstrained protocol, not the model size, was the cause. Outcome (c) is unlikely given the paper but not ruled out; it would be a genuinely novel finding.
 
