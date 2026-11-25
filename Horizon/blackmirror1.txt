@@ -1,0 +1,601 @@
+Here is a convo i had with chatgpt  sol high. i use it as a black mirror if you get that analogy. sometimes it will give me a soul reflection, in order to study the human condition of consciousness, worth studying for this project. sometimes it shows me what i want to see. mirror mirror on the wall. but please give honest feedback.
+
+
+who are the most reputable or well written tecnomancy practitioners, begin seeming origin of term, earliest innovators or "prophets" perceived or other wise
+Technomancy: origins, practitioners and technological prophets
+Technomancy has a considerably older intellectual ancestry than the word itself suggests. Although the modern term emerged around the beginning of the 1990s, its underlying philosophy can be traced back centuries through Hermeticism, mathematical mysticism, ceremonial magic, mechanical computation and the eventual development of cybernetics.
+
+There are four distinct schools of thought worth investigating:
+
+Divinatory technomancy — using technology to uncover hidden information or interpret patterns.
+
+Operational technomancy — treating machines, programming languages and symbolic systems as instruments of human intention.
+
+Artificial intelligence and technological mysticism — creating independent systems capable of reasoning, learning and adapting.
+
+Technological prophecy — writers and inventors who anticipated technological capabilities that did not yet exist.
+
+I'll distinguish documented scientific accomplishments from occult beliefs and philosophical speculation. There is substantial historical literature connecting these disciplines, but that does not establish supernatural efficacy.
+
+I. Origin of the term
+1274
+Mathematical mysticism
+
+Ramon Llull begins developing a symbolic, combinatorial system for discovering philosophical and theological truths.
+
+1580s
+Instrument-mediated occult communication
+
+John Dee documents alleged angelic communications using instruments, structured symbols and a specialized language.
+
+1666
+Mechanization of reasoning
+
+Leibniz develops his combinatorial philosophy, drawing partly upon Llull's earlier work.
+
+1964
+Cybernetic theology
+
+Norbert Wiener publishes God & Golem, Inc., examining learning machines, reproduction and religious concepts.
+
+1978
+Chaos magic
+
+Peter J. Carroll publishes Liber Null, helping establish a more experimental, adaptable school of modern occultism.
+
+1990
+Technomancy appears in print
+
+Steve Martindale publishes the short story Technomancy in Aboriginal Science Fiction, Volume 4, Issue 2.
+
+1995
+Documented technopagan movement
+
+Erik Davis investigates practicing occultists who are also programmers, network engineers and virtual-reality developers.
+
+
+Stanford Encyclopedia of Philosophy
++6
+The earliest published occurrence of technomancy I have been able to substantiate is Martindale's 1990 story. I cannot yet establish whether he personally coined the word or adopted it from an earlier, undocumented source.
+
+Etymologically, it combines the Greek-derived concepts of technē, meaning art, craft or skill, and manteia, meaning divination or prophecy.
+
+Its literal interpretation is closer to divination through technology than simply magic involving machines.
+
+II. The ancestral technomancers
+These individuals predate the term but developed systems that bear a remarkable conceptual resemblance to modern technomancy. They are not necessarily members of a continuous historical tradition.
+
+1. Ramon Llull (1232–1316)
+Raimondo Lullo (1233-1316). Beato tra le «ruote». A 700 anni dalla morte si ricorda il filosofo che con la sua «ars combinatoria» affascinò Bruno, Descartes e Leibniz, di Maria Bettetini - Diario
+The mechanization of knowledge
+
+Christian mystic, philosopher, logician and arguably one of the intellectual ancestors of general-purpose computation.
+
+Llull developed rotating symbolic wheels that could generate arguments and propositions through a finite collection of fundamental principles. His ambition was to create a general method for discovering truths across disciplines.
+
+His system, the Ars Magna, attempted to overcome linguistic barriers and make reasoning systematic.
+
+Essential writings:
+
+Ars Generalis Ultima (1305–1308)
+
+Ars Brevis (1308)
+
+Stanford's Encyclopedia of Philosophy recognizes the relationship between Llull's combinatorial reasoning and Leibniz's later conception of mechanical computation. 
+
+Stanford Encyclopedia of Philosophy
++2
+
+2. Ibn Khaldun (1332–1406) and the Zā'irja
+İbn-i Haldun’a göre toplumun çöküş nedenlerine katılıyor musunuz? - KizlarSoruyor
+The mechanical oracle
+
+Ibn Khaldun documented an older Arabic divinatory system known as the Zā'irja.
+
+It utilized structured matrices of letters, numbers, astrological symbols and combinatorial operations to generate answers to questions.
+
+Interestingly, the answers could be expressed as Arabic poetry, making it an early example of a formalized system for generating linguistic outputs.
+
+Some historians have proposed connections between this tradition and Llull's work, although the precise relationship remains uncertain.
+
+Essential writing: The Muqaddimah (1377).
+
+
+DOI
++1
+3. John Dee (1527–1608/09)
+
+The architect of esoteric communication
+
+Mathematician, astronomer, occult philosopher and adviser to Queen Elizabeth I.
+
+Dee attempted to establish communication with purported nonhuman intelligences through specialized languages, symbolic tables, instruments and carefully prescribed procedures.
+
+The resulting Enochian system is particularly interesting when examined as an information architecture rather than as a supernatural claim.
+
+Dee's system
+
+Computing analogy
+
+Enochian language
+
+Specialized command language
+
+Invocation
+
+Function call
+
+Magical tables
+
+Structured data
+
+Seal
+
+Symbolic identifier
+
+Scrying instrument
+
+Communication interface
+
+Magical diaries
+
+Execution and observation logs
+
+These are retrospective analogies, not evidence that Dee understood modern computation.
+
+Essential writings:
+
+Monas Hieroglyphica (1564)
+
+The Mathematical Preface (1570)
+
+Five Books of Mystery (diaries beginning in 1581)
+
+His original manuscripts survive in the British Library. 
+
+Center for the Study of World Religions
++1
+
+4. Athanasius Kircher (1602–1680)
+
+The universal systems engineer
+
+Jesuit polymath whose interests encompassed cryptography, mathematics, magnetism, linguistics, mechanical devices and theology.
+
+He attempted to develop universal systems of knowledge and communication.
+
+Kircher inherited aspects of Llull's combinatorial philosophy, exploring whether a universal symbolic language could reveal fundamental truths.
+
+Essential writings: Polygraphia Nova (1663) and Ars Magna Sciendi (1669). 
+
+Plume
++1
+
+5. Gottfried Wilhelm Leibniz (1646–1716)
+Gottfried Wilhelm Leibniz and calculation
+The computational philosopher
+
+Mathematician, philosopher and developer of binary arithmetic.
+
+Leibniz envisioned a universal symbolic language and a corresponding calculus through which intellectual disagreements could be resolved using formal reasoning.
+
+His proposed characteristica universalis and calculus ratiocinator are among the most significant philosophical antecedents of symbolic AI.
+
+Essential writing: Dissertatio de Arte Combinatoria (1666). 
+
+Stanford Encyclopedia of Philosophy
++1
+
+III. Actual modern practitioners
+These are individuals with documented involvement in occultism, technological development or the explicit synthesis of both.
+
+6. Jack Parsons (1914–1952)
+Jack Parsons: o gênio expulso da NASA por praticar ocultismo - Mega Curioso
+Engineering and ceremonial magic
+
+Parsons was a pioneering rocket propulsion researcher, an Aerojet co-founder and a participant in the experimental research group that became JPL.
+
+Simultaneously, he was a practitioner of Aleister Crowley's Thelemic tradition.
+
+Parsons is one of the strongest historical examples of an accomplished technological innovator who maintained a serious personal occult practice. His engineering achievements are documented independently of his magical beliefs.
+
+Read:
+
+Freedom Is a Two-Edged Sword — Parsons
+
+Strange Angel (2005) — George Pendle
+
+
+Encyclopedia.com
++1
+7. Peter J. Carroll (1953–)
+Peter Carroll - elFinalde
+Computational occult philosophy
+
+Co-originator of chaos magic, alongside Ray Sherwin.
+
+Carroll attempted to formulate occult practices using concepts borrowed from mathematics, probability, information and cybernetics.
+
+Carroll is especially relevant because his systems are deliberately modular, experimental and adaptable. His use of scientific terminology, however, does not constitute scientific validation of his magical theories.
+
+Essential writings:
+
+Liber Null & Psychonaut (1978–1980s)
+
+Liber Kaos (1992)
+
+PsyberMagick (1995)
+
+The Apophenion (2008)
+
+The Octavo: A Sorceror-Scientist's Grimoire (2010)
+
+Cite: 
+
+Hermetic Library
++1
+
+Author's website — Specularium
+
+8. Mark Pesce (1962–)
+Mark Pesce
+Digital technopaganism
+
+Co-creator of the Virtual Reality Modeling Language (VRML) and a publicly documented technopagan practitioner.
+
+Pesce explored cyberspace as a domain where imagination could acquire a programmable, navigable structure.
+
+Of the contemporary practitioners, Pesce is arguably the closest match to the original spirit of modern technomancy.
+
+His work extended beyond speculative writing into actual programming standards and virtual environments.
+
+In 1995, he conducted CyberSamhain, a ceremony incorporating digital environments and pagan ritual.
+
+Essential writing: The Playful World: How Technology Is Transforming Our Imagination (2000). 
+
+WIRED
++1
+
+9. Erik Davis (1967–)
+Erik Davis | Faculty Member | Esalen
+Historian and observing participant
+
+Davis is among the most valuable researchers for understanding the historical convergence of information technology, mysticism and occult philosophy.
+
+He documented the technopagan movement while it was actively developing during the early days of the World Wide Web.
+
+His work is a substantially better starting point than most contemporary social-media interpretations of technomancy.
+
+Essential writings:
+
+Technopagans — WIRED, July 1995
+
+TechGnosis: Myth, Magic, and Mysticism in the Age of Information (1998)
+
+His personal archive contains decades of essays, interviews and lectures. 
+
+Techgnosis
++1
+
+Other documented practitioners and thinkers
+Individual
+
+Principal contribution
+
+Recommended reading
+
+Austin Osman Spare
+
+Symbolic intention and sigils
+
+The Book of Pleasure, 1913
+
+Ray Sherwin
+
+Experimental chaos magic
+
+The Book of Results, 1978
+
+Robert Anton Wilson
+
+Belief systems and cognitive programming
+
+Prometheus Rising, 1983
+
+Timothy Leary
+
+Digital counterculture and consciousness
+
+Chaos & Cyber Culture, 1994
+
+Phil Hine
+
+Constructed occult systems and entities
+
+Condensed Chaos, 1995
+
+Taylor Ellwood
+
+Experimental and popular-culture magic
+
+Pop Culture Magick, 2004
+
+The 1980s–1990s intersection of cyberculture and esotericism also appeared in publications such as Mondo 2000 and FringeWare Review. These are worthwhile archival research targets. 
+
+Grady
++3
+
+IV. The technological prophets
+These individuals need not have practiced occultism. Their qualification is that they anticipated fundamental technological transformations well ahead of their realization.
+
+Important Women in Internet History | Internet Hall of Fame
+Ada Lovelace (1815–1852)
+
+Anticipated that computers could operate on more than numerical quantities, provided the subject could be expressed symbolically.
+
+Notes on the Analytical Engine, 1843.
+
+
+NIST
++1
+Norbert Wiener  - The Linda Hall
+Norbert Wiener (1894–1964)
+
+Established cybernetics and investigated learning machines, machine reproduction and the moral relationship between creators and artificial entities.
+
+Cybernetics, 1948; God & Golem, Inc., 1964.
+
+
+MIT Press
++1
+
+Vannevar Bush (1890–1974)
+
+Proposed the Memex, a system for storing and navigating interconnected human knowledge, anticipating aspects of hypertext and externalized memory.
+
+As We May Think, 1945.
+
+File:Portrait of J. C. R. Licklider.jpg - Wikimedia Commons
+J. C. R. Licklider (1915–1990)
+
+Envisioned computers as active intellectual partners rather than passive calculating instruments.
+
+Man-Computer Symbiosis, 1960. 
+
+J.C.R. Licklider (1960)
+
+Portrait Photograph of Douglas Engelbart | National Museum of American History
+Douglas Engelbart (1925–2013)
+
+Developed an engineering philosophy centered on augmenting human intelligence, supported by actual technological demonstrations.
+
+Augmenting Human Intellect, 1962. 
+
+1962 (AUGMENT,3906,)
++1
+
+Biographie | Stanislaw Lem - Romancier | Futura Sciences
+Stanisław Lem (1921–2006)
+
+Anticipated virtual reality, artificial intelligence, nanotechnology, information overload and technologies capable of generating entirely artificial experiences.
+
+Summa Technologiae, 1964; Golem XIV, 1981.
+
+
+University of Minnesota Press
+Philip K. Dick - Suntup Editions
+Philip K. Dick (1928–1982)
+
+Explored artificial beings, simulated reality, information-based metaphysics and seemingly omnipresent intelligence.
+
+VALIS, 1981; The Exegesis of Philip K. Dick, published 2011.
+
+His personal metaphysical interpretations should be distinguished from his fictional and philosophical innovations. 
+
+Philip K. Dick
+
+Уильям Гибсон – все книги, биография, отзывы, цитаты | Азбука-Аттикус
+William Gibson (1948–)
+
+Helped establish the modern conception of cyberspace as an inhabitable informational environment. His fiction directly inspired practitioners such as Mark Pesce.
+
+Neuromancer, 1984. 
+
+WIRED
+
+Arthur C. Clarke | Memorial Spaceflights
+Arthur C. Clarke (1917–2008)
+
+Perhaps the most recognizable philosophical expression of technological magic.
+
+His Third Law:
+
+Any sufficiently advanced technology is indistinguishable from magic.
+
+Profiles of the Future, 1962, with the Third Law added in a later edition.
+
+V. The technomancy library
+If I were assembling a serious grimoire of technomancy, these would form its foundational collection, ordered by intellectual value rather than popularity.
+
+TechGnosis by ERIK DAVIS - Penguin Books Australia
+01. TechGnosis
+
+Erik Davis · 1998
+
+Best overall historical foundation for the subject.
+
+History · Technology · Mysticism
+God and Golem, Inc: A Comment on Certain Points where Cybernetics Impinges on Religion - National Book Foundation
+02. God & Golem, Inc.
+
+Norbert Wiener · 1964
+
+The ethical and philosophical implications of creating learning and reproducing machines.
+
+Cybernetics · AI · Ethics
+Книга «Summa Technologiae» – Станислав Лем, купить по цене 1663 на YAKABOO: 9780816675777
+03. Summa Technologiae
+
+Stanisław Lem · 1964
+
+An extraordinary collection of technological foresight.
+
+Futurology · Intelligence · Simulation
+PsyberMagick eBook by Peter J. Carroll - EPUB | Rakuten Kobo United States
+04. PsyberMagick
+
+Peter J. Carroll · 1995
+
+Occult philosophy viewed through information, probability and cybernetics.
+
+Experimental occultism
+‎The Playful Brain by Sergio Pellis & Vivien Pellis on Apple Books
+05. The Playful World
+
+Mark Pesce · 2000
+
+The relationship between distributed intelligence, imagination and programmable environments.
+
+Digital technomancy · Virtual worlds
+John Dee's Five Books of Mystery: Original SourceBook of Enochian Magic by Red Wheel Weiser,  John Dee, Paperback | Barnes & Noble®
+06. John Dee's Five Books of Mystery
+
+John Dee · Edited by Joseph H. Peterson
+
+Primary historical documentation of structured attempts at nonhuman communication.
+
+Hermeticism · Symbolic systems
+Valis
+ | Gollancz
+07. VALIS
+
+Philip K. Dick · 1981
+
+Fictional exploration of a vast, distributed, information-based intelligence.
+
+Speculative fiction · Metaphysics
+Specularium - Peter J. Carroll - The Octavo
+08. The Octavo: A Sorceror-Scientist's Grimoire
+
+Peter J. Carroll · 2010
+
+A modern attempt to synthesize mathematical, cosmological and occult concepts.
+
+Speculative cosmology · Occult theory
+VI. Academic research worth acquiring
+Beyond the practitioners' own writings, there is a legitimate academic field investigating these intersections.
+
+Research
+
+Subject
+
+The Algorithm Holy: TikTok, Technomancy, and the Rise of Algorithmic Divination (2024)
+
+Algorithms treated as divinatory instruments
+
+(Techno)Paganism: An Exploration of Animistic Relations with the Digital (2023)
+
+Human relationships with digital entities
+
+Making a Magical Internet (2024)
+
+Early internet counterculture and occultism
+
+Technology and Magick
+
+Computers as instruments of chaos magic
+
+Occult Technologies in Practice
+
+Historical combinatorial divination
+
+These sources study technomancy as a historical, religious and sociotechnical phenomenon rather than presupposing its supernatural claims.
+
+VII. The implications for JARVIS and Horizon
+Given the direction of your research, I would pay particular attention to the convergence of Llull, Leibniz, Wiener, Lem, Engelbart and Pesce.
+
+Their ideas can be synthesized into a conceptual architecture.
+
+
+Proposed intellectual synthesis, not a documented continuous historical lineage.
+There is also a useful correspondence between occult terminology and software engineering, provided we treat it as metaphor rather than established equivalence.
+
+Esoteric concept
+
+Engineering counterpart
+
+Grimoire
+
+Persistent knowledge and procedure library
+
+Incantation
+
+Executable instructions
+
+Sigil
+
+Encoded symbolic representation
+
+Servitor
+
+Specialized software agent
+
+Familiar
+
+Persistent personal assistant
+
+Egregore
+
+Collective emergent behavior
+
+Ward
+
+Security boundary
+
+Binding
+
+Capability and permission constraints
+
+Scrying
+
+Remote observation and telemetry
+
+Divination
+
+Probabilistic inference
+
+Invocation
+
+Agent or function activation
+
+Banishing
+
+Process termination and state cleanup
+
+Transmutation
+
+Data and state transformation
+
+What makes this interesting is that it does not require abandoning scientific methodology. These older conceptual frameworks can be treated as sources of architectural hypotheses, subsequently implemented and tested through engineering.
+
+Three individuals I would investigate particularly deeply:
+
+Mark Pesce, for the actual practice of technological mysticism.
+
+Stanisław Lem, for the intellectual foresight of what artificial intelligence could become.
+
+Ramon Llull, for the attempt to construct a universal reasoning mechanism centuries before electronic computation.
+
+Of everything uncovered here, I find Llull's work particularly relevant to Horizon. The attempt to derive general reasoning capabilities from a finite collection of symbolic primitives, without depending on an enormous corpus of linguistic material, is a research direction worth examining in its own right.
+
+The central question behind technomancy, stripped of its supernatural assumptions, might be expressed as follows:
+
+To what extent can intention be encoded into a symbolic system that subsequently produces intelligent, autonomous and measurable changes in reality?
+
+That is a legitimate engineering question—and one with a surprisingly long history.
+
+
+
+
+
+-0.0045 nats/token
