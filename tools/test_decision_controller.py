@@ -136,10 +136,19 @@ class OfflineDecisionTests(unittest.TestCase):
         for text in (
             "What's the weather like today?",
             "Is my flight gate still the same?",
-            "What is the latest news?",
         ):
             with self.subTest(text=text):
                 self.assertEqual(self.controller.decide(text).strategy, "respond")
+        # News-like questions route to the staged world snapshot while the
+        # world_sense capability is registered; without it they refuse.
+        self.assertEqual(
+            self.controller.decide("What is the latest news?").strategy,
+            "world_sense",
+        )
+        no_world = OfflineDecisionController(registry=CapabilityRegistry(()))
+        self.assertEqual(
+            no_world.decide("What is the latest news?").strategy, "respond"
+        )
         self.assertEqual(
             self.controller.decide("How do flight gates change?").strategy,
             "conversation",

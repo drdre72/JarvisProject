@@ -183,7 +183,41 @@ Private session notes and editor settings are intentionally not included.
   MSVC/Visual Studio required). `tools\verify.ps1` runs fmt/clippy/test
   automatically when `cargo` is present.
 
+## World-sense (God's Eye View sidecar)
+
+- `tools/gev_snapshot.mjs` (Node stdlib only) is an owner-run **staging**
+  tool in the same boundary class as the wheelhouse/model downloads: it may
+  use the network while capturing. It polls a running God's Eye View data
+  plane (`server/providers` `/api/*` routes) plus whitelisted upstream feeds
+  (USGS) and writes `world-snapshots/` — gitignored, a manifest + raw feed
+  bodies with GEV staleness headers (`x-feed-cache`, `x-feed-age-ms`,
+  `x-*-source`) preserved. `--feeds` merges into the manifest; a failed feed
+  records an error rather than aborting. GEV lives in a **sibling checkout**
+  (`..\gods-eye-view`, MIT licensed, Node 24+/26), launched with
+  `npm run dev` headless; no GEV code ships inside Jarvis's runtime.
+- `scripts/world_sense.py` is the offline reader: pure file I/O, per-feed
+  decay windows (`FEED_FRESHNESS_SEC`), GEV's feed-state vocabulary, and
+  defensive duck-typed parsers that raise rather than guess. Answers always
+  lead with provenance (age + source); stale/degraded/failed feeds are
+  labeled, never narrated as live. This is observed external data — a fourth
+  category beside memory/imagination/facts; it must stay labeled and never
+  flows into Knowledge without normal review.
+- `decision_controller` routes `WORLD_QUERY_RE` matches to the `world_sense`
+  strategy before the live-data refusal; personal flight status/gate,
+  weather and traffic refuse first (`_PERSONAL_LIVE`) since no feed stages
+  them. `jarvis_app` executes the strategy and speaks the reply.
+- Deferred: snapshot scheduling (Rust obligation scheduler candidate),
+  SGP4 propagation, MCP rich-query bridge (`server/mcp/stdio.js` exists),
+  `show_in_gods_eye_view` control intents, offline globe view.
+
 ## Environment variables
+
+- `JARVIS_WORLD_SNAPSHOTS` — optional absolute path to a snapshot dir;
+  default `<repo>/world-snapshots` via `JARVIS_BASE_PATH`.
+- `JARVIS_HOME_LAT` / `JARVIS_HOME_LON` — optional home position; makes
+  aircraft/vessel answers include "nearest to home" distance ranking.
+- `GEV_API_BASE` — (planned) sidecar endpoint; the snapshotter takes
+  `--api-base` directly today.
 
 - `JARVIS_BASE_PATH`, `JARVIS_APP_PATH` — set by `main.py`; STT respects
   `JARVIS_BASE_PATH` for the models dir.

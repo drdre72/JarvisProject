@@ -48,6 +48,14 @@ _LOCAL_CAPABILITIES = (
         "scripts/obsidian_memory.py", "tools/test_obsidian_brain.py",
         "read", "unit_tested",
     ),
+    Capability(
+        "world_sense",
+        "answer questions about staged world data (flights, ships, "
+        "earthquakes, launches, fires, storms, satellites, news) with "
+        "freshness labels",
+        "scripts/world_sense.py", "tools/test_world_sense.py",
+        "read", "unit_tested",
+    ),
 )
 
 

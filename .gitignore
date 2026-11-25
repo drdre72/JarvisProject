@@ -69,6 +69,9 @@ updates/
 reports/
 .devin-context/tally_*.txt
 
+# Staged world-data snapshots (owner-run captures; see tools/gev_snapshot.mjs)
+world-snapshots/
+
 # Keep personal notes and local agent/editor state out of the clean repository.
 chat_memory.txt
 notes_log.txt

@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass
 
 from capability_registry import CapabilityRegistry
+from world_sense import WORLD_QUERY_RE
 
 
 @dataclass(frozen=True)
@@ -14,11 +15,20 @@ class Decision:
     sources: tuple[str, ...] = ()
 
 
+# Live-data requests the snapshot cannot satisfy: personal flight lookups,
+# weather and traffic. These always refuse honestly — the world feeds do not
+# stage them.
+_PERSONAL_LIVE = re.compile(
+    r"\b(?:(?:has|did|is|what is|check|what'?s) my flight"
+    r"(?:\s+(?:gate|status|number|details|time))?|flight status|"
+    r"(?:current|live|today'?s) (?:weather|traffic)|"
+    r"(?:weather|traffic)\b.{0,30}\b(?:today|now|right now))\b",
+    re.I,
+)
+# Remaining live phrases that world_sense covers when staged; they still
+# refuse honestly when the capability or snapshot is absent.
 _LIVE_DATA = re.compile(
-    r"\b(?:(?:has|did|is|what is) my flight gate|flight status|"
-    r"(?:current|live|today'?s) (?:weather|traffic|news)|"
-    r"(?:weather|traffic)\b.{0,30}\b(?:today|now|right now)|"
-    r"latest news)\b",
+    r"\b(?:latest news|current news|live news|today'?s news)\b",
     re.I,
 )
 _METRICS = re.compile(
@@ -58,6 +68,21 @@ class OfflineDecisionController:
         text = text.strip() if text else ""
         if not text:
             return Decision("respond", "empty_input", reply="What would you like to ask, sir?")
+        # Personal live lookups refuse before the world catch-all terms
+        # (e.g. "my flight gate" must not answer with the global feed).
+        if _PERSONAL_LIVE.search(text):
+            return Decision(
+                "respond", "fresh_data_unavailable",
+                reply=(
+                    "I cannot check live flight, weather, news, or traffic information "
+                    "while offline. Please confirm current details with an authoritative "
+                    "source; I can help reason from information you provide."
+                ),
+            )
+        # Snapshot-backed world questions route to the staged-data reader:
+        # staged feeds answer with a freshness label, others refuse honestly.
+        if self.registry.supports("world_sense") and WORLD_QUERY_RE.search(text):
+            return Decision("world_sense", "world_query", "world_sense")
         if _LIVE_DATA.search(text):
             return Decision(
                 "respond", "fresh_data_unavailable",

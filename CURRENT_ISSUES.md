@@ -112,3 +112,13 @@ Numbered buglist. States: ACTIVE, OPEN, PENDING VERIFY, RESOLVED, EXTERNAL.
     conflict resolution and independently verified freshness are not yet
     supported. No link approves a pending note. Live Obsidian review and
     representative large-vault performance remain untested.
+20. World-sense (God's Eye View sidecar) - ACTIVE with known limits.
+    `tools/gev_snapshot.mjs` + `scripts/world_sense.py` verified end-to-end
+    (11/13 feeds, real provenance labels). OPEN: snapshot refresh is manual
+    (no scheduled recapture; Rust obligation scheduler is the candidate);
+    satellites answer as TLE/catalog records, not positions (SGP4 deferred);
+    vessels (AISStream) and FIRMS require owner API keys; weather, traffic
+    and unstaged domains still refuse honestly; military feed showed one
+    transient upstream 502 that self-recovered; no globe control intents
+    (`show_in_gods_eye_view`) or offline globe view yet; live voice routing
+    of world questions not yet tested in the UI.

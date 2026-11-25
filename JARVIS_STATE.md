@@ -72,6 +72,18 @@
   classified capability, self-purpose and ordinary-advice questions; live
   voice/Obsidian retesting remains pending. A conservative self-claim guard
   rejects model-authored ability/purpose claims when misclassified as dialogue.
+- World-sense reference (God's Eye View sidecar) live: `tools/gev_snapshot.mjs`
+  captures public feeds from a locally running GEV data plane + whitelisted
+  upstream URLs into gitignored `world-snapshots/` (manifest + raw bodies with
+  provenance headers preserved). `scripts/world_sense.py` answers world
+  questions offline from those files only — freshness-classified per feed
+  (nominal/degraded/stale/unavailable/missing, GEV's own vocabulary), spoken
+  with explicit age and source, never presented as live. Verified end-to-end
+  against a real capture: 11/13 feeds (flights 11.9k aircraft, military,
+  earthquakes, launches, fire perimeters, cyclones, GDELT news feed +
+  hotspots, CelesTrak TLE/satcat groups); vessels + FIRMS record honest
+  missing-key failures. Deterministic routing: world domains route before
+  the live-data refusal; personal flight/weather/traffic still refuse first.
 - Manually approved flat Knowledge notes now form a local wikilink graph.
   Lexical matches expand through relevant outgoing approved links at most
   two hops, six notes and 3500 Knowledge characters, preserving relationship,
@@ -96,7 +108,14 @@
 6. `flet-video` optional and unstaged → avatar video placeholder.
 7. This source-only snapshot has an Apache-2.0 LICENSE; excluded runtime
    assets and media retain their own licensing and provenance requirements.
-8. Local capability registry records implementation and test evidence, but
+8. World-sense limits: snapshot refresh is a manual owner step (no scheduled
+   recapture yet — the Rust obligation scheduler is the natural home);
+   satellites answer as catalog records, not positions (SGP4 propagation not
+   built); vessels/FIRMS need owner API keys; weather/traffic/feeds beyond
+   the staged set still refuse honestly; no globe control surface yet —
+   `show_in_gods_eye_view` intents deferred. The GEV checkout is a sibling
+   directory, not a Jarvis dependency.
+9. Local capability registry records implementation and test evidence, but
    not live health checks; decision rules are intentionally narrow, not a
    general planner or simulation engine. Structured inference is still model
    classification and can be wrong; ordinary dialogue drafts are unverified.

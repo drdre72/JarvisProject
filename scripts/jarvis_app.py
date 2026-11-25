@@ -638,6 +638,27 @@ class JarvisApp:
                     speak(response)
                     outcome = "answered"
                     return
+                if decision.strategy == "world_sense":
+                    self.set_activity("Reading the world snapshot...")
+                    try:
+                        from world_sense import answer_world_query
+                        outcome_ws = answer_world_query(user_input)
+                        response = (
+                            outcome_ws.reply
+                            if outcome_ws is not None
+                            else "I don't have a staged world feed for that, sir."
+                        )
+                    except Exception as error:
+                        get_runtime_logger().warning(
+                            "decision world_sense failed type=%s", type(error).__name__
+                        )
+                        response = (
+                            "I could not read the world snapshot just now, sir."
+                        )
+                    self.add_chat_message("Jarvis", response, True)
+                    speak(response)
+                    outcome = "answered"
+                    return
                 if decision.strategy == "conversation":
                     self.set_activity("Understanding your request locally...")
                     try:
