@@ -5,7 +5,7 @@ import os
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from obsidian_graph import VaultGraph, parse_approved_note
@@ -79,6 +79,14 @@ class ObsidianBrain:
         self.review = self._directory(self.jarvis / "Review", create=create)
         self.knowledge = self._directory(self.jarvis / "Knowledge", create=create)
         self.legacy_file = self.base_path / "memory" / "conversations.json"
+        self._last_write_stamp = None
+
+    def _write_timestamp(self):
+        stamp = datetime.now().astimezone()
+        if self._last_write_stamp is not None and stamp <= self._last_write_stamp:
+            stamp = self._last_write_stamp + timedelta(microseconds=1)
+        self._last_write_stamp = stamp
+        return stamp
 
     @staticmethod
     def _directory(path, create=True):
@@ -100,7 +108,7 @@ class ObsidianBrain:
     def _write(self, directory, kind, review_status, body):
         if directory.is_symlink():
             raise ValueError("Refusing symlinked vault directory")
-        stamp = datetime.now().astimezone()
+        stamp = self._write_timestamp()
         filename = f"{stamp.strftime('%Y%m%dT%H%M%S%f')}-{uuid.uuid4().hex[:12]}.md"
         path = self._safe_file(directory / filename)
         header = (
